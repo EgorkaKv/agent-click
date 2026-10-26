@@ -113,7 +113,7 @@ function describePending(state: {
   probeError: boolean;
 }): string[] {
   const pending: string[] = [];
-  if (state.probeError) pending.push("page not responding (navigating?)");
+  if (state.probeError) pending.push("page busy or navigating (scripts did not answer)");
   if (state.inflight > 0) {
     const n = state.inflight;
     const list = state.descriptions.join(", ");

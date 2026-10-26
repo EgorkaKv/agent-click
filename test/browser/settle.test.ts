@@ -100,7 +100,7 @@ describe("waitForSettle with a fake probe", () => {
       { timeoutMs: 400 },
     );
     expect(r.settled).toBe(false);
-    expect(r.pending).toContain("page not responding (navigating?)");
+    expect(r.pending).toContain("page busy or navigating (scripts did not answer)");
   });
 });
 

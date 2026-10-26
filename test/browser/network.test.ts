@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Browser, CDPSession, Page } from "puppeteer-core";
 import { launchTestBrowser } from "../helpers/browser.js";
-import { NetworkRecorder, isTelemetry, shortenUrl } from "../../src/browser/network.js";
+import { NetworkRecorder, isTelemetry, shortenUrl, siteOf } from "../../src/browser/network.js";
 import { startFixtureServer, waitFor, type FixtureServer } from "./support.js";
 
 let server: FixtureServer;
@@ -48,6 +48,7 @@ describe("isTelemetry", () => {
     "https://www.clarity.ms/tag/abc",
     "https://http-intake.logs.datadoghq.com/api/v2/logs",
     "https://browser-intake-datadoghq.com/api/v2/rum",
+    "https://browser-intake-datadoghq.eu/api/v2/rum",
     "https://bam.nr-data.net/jserrors/1",
     "https://us.i.posthog.com/e/",
     "https://api.intercom.io/events",
@@ -180,5 +181,17 @@ describe("NetworkRecorder", () => {
     await new Promise((r) => setTimeout(r, 200));
     expect(recorder.mutationsSince(mark)).toEqual([]);
     await page.close();
+  });
+});
+
+describe("siteOf", () => {
+  it.each([
+    ["hq1.appsflyer.com", "appsflyer.com"],
+    ["business.facebook.com", "facebook.com"],
+    ["a.b.co.uk", "b.co.uk"],
+    ["127.0.0.1", "127.0.0.1"],
+    ["localhost", "localhost"],
+  ])("%s → %s", (host, site) => {
+    expect(siteOf(host)).toBe(site);
   });
 });

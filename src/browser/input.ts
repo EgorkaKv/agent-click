@@ -165,6 +165,19 @@ export async function insertText(cdp: CDPSession, text: string): Promise<void> {
 }
 
 /**
+ * Types text key by key (keydown/keypress/input/keyup per character). Slower than insertText, but
+ * autocomplete widgets that listen to key events only react to this.
+ */
+export async function typeText(cdp: CDPSession, text: string): Promise<void> {
+  for (const ch of text) {
+    const key = resolveKey(ch) ?? { key: ch, code: "", vk: 0, text: ch };
+    const base = { key: ch, code: key.code, windowsVirtualKeyCode: key.vk, nativeVirtualKeyCode: key.vk };
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", ...base, text: ch, unmodifiedText: ch });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
+  }
+}
+
+/**
  * Presses a key or key combo, e.g. "Enter", "Tab", "Control+A", "Shift+Tab", "Meta+Enter", "a".
  * Modifiers go down before the key and come up after it. Throws before sending anything if the
  * combo is not recognised.
