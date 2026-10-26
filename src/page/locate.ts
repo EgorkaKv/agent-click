@@ -23,13 +23,13 @@ function describeCand(c: Cand): string {
 /** "[12] button "Save" in dialog "Edit", [40] ..." (assigns ids to the listed elements). */
 function listing(cands: Cand[], dead: DeadPool): string {
   return cands
-    .map((c) => `[${registry.assign(c.el, c.fp, dead)}] ${describeCand(c)}`)
+    .map((c) => `[${registry.assign(c, dead)}] ${describeCand(c)}`)
     .join(", ");
 }
 
 function failure(error: "not_found" | "ambiguous" | "stale" | "not_visible" | "disabled", message: string, cands: Cand[], dead: DeadPool): LocateResult {
   if (cands.length === 0) return { ok: false, error, message };
-  const candidates: ElementInfo[] = cands.map((c) => buildInfo(c, registry.assign(c.el, c.fp, dead)));
+  const candidates: ElementInfo[] = cands.map((c) => buildInfo(c, registry.assign(c, dead)));
   return { ok: false, error, message, candidates };
 }
 
@@ -95,7 +95,7 @@ function resolveTarget(target: TargetSpec, coll: Collection, dead: DeadPool): Re
   return matchText(pool, text, dead);
 }
 
-export function locate(target: TargetSpec, opts: { scroll?: boolean } = {}): LocateResult {
+export function locate(target: TargetSpec, opts: { scroll?: boolean; anyState?: boolean } = {}): LocateResult {
   const scroll = opts.scroll ?? true;
   const coll = collect();
   const dead = registry.deadPool();
@@ -105,13 +105,14 @@ export function locate(target: TargetSpec, opts: { scroll?: boolean } = {}): Loc
     return failure(r.error, r.message, r.candidates ?? [], dead);
   }
   const cand = r.cand;
-  const id = registry.assign(cand.el, cand.fp, dead);
+  const id = registry.assign(cand, dead);
   const label = `[${id}] ${describeCand(cand)}`;
 
   if (!isRendered(cand.el)) {
     return { ok: false, error: "not_visible", message: `${label} is not rendered` };
   }
-  if (isDisabled(cand.el)) {
+  // anyState: the element is only a reference point (scroll container), not something to act on.
+  if (!opts.anyState && isDisabled(cand.el)) {
     return { ok: false, error: "disabled", message: `${label} is disabled` };
   }
 

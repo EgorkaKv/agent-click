@@ -5,6 +5,36 @@
 export interface Entry {
   ref: WeakRef<Element>;
   fp: string;
+  /** Name the id was bound to, for roles where a name change means another object. */
+  name?: string;
+}
+
+/**
+ * Roles whose name identifies the object: a link, an option, a tab or a table cell that gets
+ * another name now shows another object (React reuses the node for another row). Their old id
+ * dies with the name. Fields and toggling buttons keep their id across name changes.
+ */
+export const OBJECT_ROLES = new Set([
+  "link",
+  "option",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "tab",
+  "treeitem",
+  "row",
+  "cell",
+  "gridcell",
+  "rowheader",
+  "columnheader",
+]);
+
+/** The parts of a candidate that identify it for the registry. */
+export interface Identity {
+  el: Element;
+  fp: string;
+  role: string;
+  name: string;
 }
 
 export class Registry {
@@ -32,20 +62,31 @@ export class Registry {
     return this.boundId(el) !== undefined && el.isConnected;
   }
 
-  /** Id for el with fingerprint fp: its own, a dead entry's with the same fp, or a new one. */
-  assign(el: Element, fp: string, dead: DeadPool): number {
+  /**
+   * Id for a candidate: its own, a dead entry's with the same fingerprint, or a new one.
+   * For an object role (OBJECT_ROLES) a changed name retires the own id: the number now
+   * names another object, so the element gets a new one.
+   */
+  assign(c: Identity, dead: DeadPool): number {
+    const { el, fp } = c;
+    const obj = OBJECT_ROLES.has(c.role);
     const known = this.boundId(el);
     if (known !== undefined) {
-      if (fp) this.byId.get(known)!.fp = fp;
-      return known;
+      const entry = this.byId.get(known)!;
+      if (!obj || entry.name === undefined || entry.name === c.name) {
+        if (fp) entry.fp = fp;
+        if (obj) entry.name = c.name;
+        return known;
+      }
+      this.byId.delete(known);
     }
     const reused = dead.take(fp);
     if (reused !== undefined) {
-      this.bind(reused, el, fp);
+      this.bind(reused, el, fp, obj ? c.name : undefined);
       return reused;
     }
     const id = this.next++;
-    this.bind(id, el, fp);
+    this.bind(id, el, fp, obj ? c.name : undefined);
     return id;
   }
 
@@ -53,9 +94,9 @@ export class Registry {
     this.bind(id, el, fp);
   }
 
-  private bind(id: number, el: Element, fp: string): void {
+  private bind(id: number, el: Element, fp: string, name?: string): void {
     this.byEl.set(el, id);
-    this.byId.set(id, { ref: new WeakRef(el), fp });
+    this.byId.set(id, { ref: new WeakRef(el), fp, name });
   }
 
   /** Dead entries grouped by fingerprint, oldest first. */

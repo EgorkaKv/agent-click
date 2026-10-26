@@ -8,11 +8,14 @@ import {
   Pt,
   STATUS_WORD_RE,
   SVG_NS,
+  blockParts,
+  cleanName,
   collapse,
   composedAncestors,
   composedContains,
   explicitRole,
   parentAcross,
+  spacedText,
   styleOf,
   textOf,
   truncate,
@@ -47,6 +50,8 @@ export interface Cand {
   ctx: string[];
   /** role|name|context: the fingerprint without the ordinal. */
   base: string;
+  /** Control whose checked state is reported when el is a wrapper (a clickable toggle). */
+  proxy?: Element;
   /** base|ordinal, from the collection that produced this candidate. "" if not from a collection. */
   fp: string;
   hint?: string;
@@ -186,6 +191,13 @@ function hintOf(el: Element): string | undefined {
 }
 
 export function nameFor(el: Element, cache: Cache): string {
+  const labelled = el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby");
+  // An option or menu item keeps its description line: "title — description".
+  const role = roleOf(el);
+  if ((role === "option" || role.startsWith("menuitem")) && !labelled) {
+    const parts = blockParts(el);
+    if (parts.length > 0) return truncate(cleanName(parts.join(" — ")), 80);
+  }
   // Fast path: a leaf non-form element without label attributes is named by its text,
   // which is what the accessible-name computation would return (or "" -> text fallback).
   if (
@@ -193,14 +205,13 @@ export function nameFor(el: Element, cache: Cache): string {
     !FORM_TAGS.has(el.localName) &&
     el.localName !== "img" &&
     !el.hasAttribute("alt") &&
-    !el.hasAttribute("aria-label") &&
-    !el.hasAttribute("aria-labelledby") &&
+    !labelled &&
     !el.hasAttribute("title")
   ) {
-    return truncate(textOf(el), 80);
+    return truncate(cleanName(textOf(el)), 80);
   }
   let n = accName(el, cache);
-  if (!n && !FORM_TAGS.has(el.localName)) n = textOf(el);
+  if (!n && !FORM_TAGS.has(el.localName)) n = cleanName(spacedText(el, true));
   return truncate(n, 80);
 }
 
@@ -242,6 +253,35 @@ export function makeCandFor(el: Element, coll: Collection): Cand {
   const c = buildCand(el, off, kind, roleOf(el), coll.cache);
   c.inLayer = !coll.layer || composedContains(coll.layer.el, el);
   return c;
+}
+
+/** Role and inner control of a clickable wrapper that holds a checkbox or switch not collected itself. */
+function innerToggle(el: Element, S1: Set<Element>): { el: Element; role: "checkbox" | "switch" } | null {
+  for (const x of el.querySelectorAll('input[type=checkbox],[role=switch],[role=checkbox]')) {
+    if (S1.has(x)) continue;
+    const isSwitch = explicitRole(x) === "switch" || explicitRole(el) === "switch";
+    return { el: x, role: isSwitch ? "switch" : "checkbox" };
+  }
+  return null;
+}
+
+/**
+ * Name of an unnamed control from the visible text of a nearby ancestor: at most 3 levels up,
+ * the first one with 1-60 chars of text (minus the control's own text and value) that holds
+ * no other collected interactive element. "" if none.
+ */
+function nearbyName(el: Element, interCount: Map<Element, number>): string {
+  const own = [textOf(el), (el as HTMLInputElement).value ?? ""].filter(Boolean);
+  let up = 0;
+  for (const a of composedAncestors(el)) {
+    if (++up > 3) break;
+    if ((interCount.get(a) ?? 0) > 1) continue; // el itself is counted once
+    let text = spacedText(a, true);
+    for (const s of own) text = text.split(s).join(" ");
+    text = cleanName(text);
+    if (text && text.length <= 60) return text;
+  }
+  return "";
 }
 
 export function collect(): Collection {
@@ -308,7 +348,12 @@ export function collect(): Collection {
 
   // 4. Ancestors of interactive elements (rows with controls, containers).
   const interAnc = new Set<Element>();
-  for (const x of S1) for (const a of composedAncestors(x)) interAnc.add(a);
+  const interCount = new Map<Element, number>();
+  for (const x of S1)
+    for (const a of composedAncestors(x)) {
+      interAnc.add(a);
+      interCount.set(a, (interCount.get(a) ?? 0) + 1);
+    }
 
   // 5. Short meaningful text outside interactive elements.
   const textSet = new Set<Element>();
@@ -334,9 +379,19 @@ export function collect(): Collection {
   for (const { el, off } of all) {
     let kind: "interactive" | "text";
     let role: string;
+    let proxy: Element | undefined;
     if (S1.has(el)) {
       kind = "interactive";
-      role = clickable.has(el) ? "clickable" : roleOf(el);
+      role = roleOf(el);
+      if (clickable.has(el)) {
+        const inner = innerToggle(el, S1);
+        if (inner) {
+          role = inner.role;
+          proxy = inner.el;
+        } else {
+          role = "clickable";
+        }
+      }
     } else if (textSet.has(el)) {
       kind = "text";
       role = textRole.get(el)!;
@@ -344,6 +399,14 @@ export function collect(): Collection {
       continue;
     }
     const c = buildCand(el, off, kind, role, cache);
+    if (proxy) c.proxy = proxy;
+    if (kind === "interactive" && !c.name) {
+      const name = nearbyName(el, interCount);
+      if (name) {
+        c.name = name;
+        c.base = `${role}|${name}|${c.ctx.join(" > ")}`;
+      }
+    }
     if (kind === "text" && !c.name) continue;
     cands.push(c);
   }

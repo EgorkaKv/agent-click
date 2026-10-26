@@ -95,5 +95,5 @@ export function openOptions(): ElementInfo[] {
   const dead = registry.deadPool();
   return coll.cands
     .filter((c) => c.role === "option" || c.role.startsWith("menuitem"))
-    .map((c) => buildInfo(c, registry.assign(c.el, c.fp, dead)));
+    .map((c) => buildInfo(c, registry.assign(c, dead)));
 }

@@ -3,7 +3,9 @@ import type { ElementInfo, PageApi } from "../types.js";
 import { collect } from "./collect.js";
 import { buildInfo } from "./info.js";
 import { resolveById } from "./resolve.js";
+import { loadingState } from "./loading.js";
 import { locate } from "./locate.js";
+import { read } from "./read.js";
 import { snapshot } from "./snapshot.js";
 import { VERSION } from "./version.js";
 import {
@@ -37,6 +39,8 @@ export function createApi(): PageApi {
     hasText,
     openOptions,
     mutationCount: () => mutations,
+    loading: loadingState,
+    read,
   };
 }
 

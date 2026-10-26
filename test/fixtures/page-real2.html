@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Real session fixture 2</title>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  .layout { display: flex; }
+  .side { width: 200px; }
+  .main { flex: 1; }
+  .side a { display: block; }
+  .spinner { display: block; width: 20px; height: 20px; background: #888; }
+  .editor { min-height: 24px; border: 1px solid #ccc; }
+  .toast { position: fixed; right: 10px; bottom: 10px; background: #fff; border: 1px solid #aaa; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="side">
+    <a href="#search">Поиск</a>
+    <a href="#help">Справка</a>
+    <a href="#all">Все объявления<span class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden">status_before_click:selected</span></a>
+  </div>
+  <div class="main">
+    <h2>Оповещения</h2>
+    <p>Новых оповещений нет</p>
+    <section aria-label="Объявления">
+      <div class="spinner" role="progressbar"></div>
+      <div class="spinner" role="progressbar"></div>
+      <div class="row"><span>Кампания 1</span><button>&#x200B;</button></div>
+      <button>Меню&#x200B;</button>
+      <div class="editor" contenteditable="true" role="textbox" data-placeholder="Задайте уточняющий вопрос"></div>
+    </section>
+    <div class="user-card"><div>Yehor Kvasenko</div><div>Бесплатный план</div></div>
+    <div class="toast"><div>Черновик сохранён</div><div>Сейчас</div></div>
+  </div>
+</div>
+</body>
+</html>

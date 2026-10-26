@@ -82,10 +82,10 @@ describe("locate", () => {
     await page.evaluate(() => window.scrollTo(0, 0));
     const snap = await snapshot(page);
     const covered = find(snap.elements, "button", "Covered");
-    expect(covered.occludedBy).toBe("footer (sticky)");
+    expect(covered.occludedBy).toBe("footer (fixed)");
     const r = await api(page, "locate", covered.id);
     expect(r.ok).toBe(true);
-    expect(r.occludedBy).toBe("footer (sticky)");
+    expect(r.occludedBy).toBe("footer (fixed)");
   });
 
   it("locates by registry id and reports stale for unknown ids", async () => {

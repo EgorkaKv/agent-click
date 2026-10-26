@@ -121,7 +121,7 @@ export interface PageApi {
   version: string;
   snapshot(opts?: SnapshotOptions): Snapshot;
   /** Resolve a target, scroll it into view if needed (block: "center"), return the click point. */
-  locate(target: TargetSpec, opts?: { scroll?: boolean }): LocateResult;
+  locate(target: TargetSpec, opts?: { scroll?: boolean; anyState?: boolean }): LocateResult;
   /** Fresh info for a known id, or null if it cannot be resolved (even by fingerprint). */
   describe(id: number): ElementInfo | null;
   /** Focus the element and select its whole content (inputs, textareas, contenteditable). */
@@ -136,6 +136,10 @@ export interface PageApi {
   openOptions(): ElementInfo[];
   /** Mutation counter, increased by a MutationObserver on document (for settle detection). */
   mutationCount(): number;
+  /** Same as snapshot().loading, without collecting elements. Called every ~50 ms while settling. */
+  loading(): { busy: boolean; reasons: string[] };
+  /** Readable text of a scope (default: modal layer, main or body); tables as `| a | b |` rows. Throws if scope not found. */
+  read(scope?: number | string, maxChars?: number): { text: string; truncated: boolean };
 }
 
 // ---- Server side ----
@@ -148,6 +152,10 @@ export interface NetworkEvent {
   status: number;
   /** For status >= 400 or failure: first 300 chars of the response body / error text. */
   error?: string;
+  /** Another site than the page (only reported when it failed); does not fail the step. */
+  thirdParty?: boolean;
+  /** Cancelled by the page itself (net::ERR_ABORTED, e.g. an SPA navigating away); does not fail the step. */
+  cancelled?: boolean;
 }
 
 export interface SettleResult {

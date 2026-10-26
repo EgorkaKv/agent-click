@@ -1,6 +1,6 @@
 // Accessible names and context paths ("dialog "X" > section "Y" > row "Z"").
 import { computeAccessibleName } from "dom-accessibility-api";
-import { collapse, composedAncestors, explicitRole, parentAcross, textOf, truncate } from "./util.js";
+import { cleanName, composedAncestors, explicitRole, parentAcross, spacedText, textOf, truncate } from "./util.js";
 
 /** Per-collection memo: names and labels are expensive and stable within one pass. */
 export class Cache {
@@ -16,14 +16,16 @@ export const CONTAINER_SEL =
 /** Elements that scope a set of controls (used by scope resolution). */
 export const SCOPE_SEL =
   "dialog,[role=dialog],[role=alertdialog],section,[role=region],fieldset,[role=group],[role=radiogroup],[role=tabpanel]";
-const HEADING_SEL = "h1,h2,h3,h4,h5,h6,[role=heading]";
+export const HEADING_SEL = "h1,h2,h3,h4,h5,h6,[role=heading]";
+/** Headings made of numbers only (KPI values such as "0" or "$0") are not section names. */
+export const HAS_LETTER = /\p{L}/u;
 
 export function accName(el: Element, cache?: Cache): string {
   const hit = cache?.names.get(el);
   if (hit !== undefined) return hit;
   let n = "";
   try {
-    n = collapse(computeAccessibleName(el));
+    n = cleanName(computeAccessibleName(el));
   } catch {
     n = "";
   }
@@ -35,7 +37,7 @@ function rowLabel(tr: Element): string {
   const cell = Array.from(tr.children).find((c) =>
     c.matches("td,th,[role=cell],[role=gridcell],[role=columnheader],[role=rowheader]"),
   );
-  const t = cell ? truncate(textOf(cell), 40) : "";
+  const t = cell ? truncate(cleanName(spacedText(cell, true)), 40) : "";
   return t ? `row "${t}"` : "row";
 }
 
@@ -62,7 +64,7 @@ function computeLabel(a: Element, cache: Cache, landmarksOnly: boolean): string 
   if (tag === "section" || role === "region") return namedOnly("section");
   if (tag === "fieldset") {
     const legend = a.querySelector(":scope > legend");
-    const t = legend ? truncate(textOf(legend), 60) : "";
+    const t = legend ? truncate(cleanName(spacedText(legend, true)), 60) : "";
     return t ? `group "${t}"` : null;
   }
   if (role === "group" || role === "radiogroup") return namedOnly("group");
@@ -80,7 +82,14 @@ export function labelOf(a: Element, cache: Cache, landmarksOnly = false): string
   return v;
 }
 
+/**
+ * Label of the heading that titles el: the nearest heading before it in its container.
+ * A heading, or anything inside one, takes no heading label (it belongs to its container, not
+ * to the heading before it). The nearest heading alone decides: when it is in another column,
+ * el gets no label rather than an older heading's.
+ */
 function nearestHeading(el: Element, cache: Cache): string | null {
+  if (el.closest(HEADING_SEL)) return null;
   let container: Element | null = null;
   for (const a of composedAncestors(el)) {
     if (a.matches(CONTAINER_SEL)) {
@@ -94,16 +103,25 @@ function nearestHeading(el: Element, cache: Cache): string | null {
     heads = Array.from(container.querySelectorAll(HEADING_SEL));
     cache.headings.set(container, heads);
   }
-  let best: Element | null = null;
+  let prev: Element | null = null;
   for (const h of heads) {
-    if (h.contains(el)) continue;
     if (el.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_PRECEDING) {
-      if (textOf(h)) best = h;
+      if (HAS_LETTER.test(textOf(h))) prev = h;
     } else {
       break; // document order: the first following heading ends the search
     }
   }
-  return best ? truncate(textOf(best), 60) : null;
+  if (!prev) return null;
+  const label = truncate(cleanName(spacedText(prev, true)), 60);
+  const hb = prev.getBoundingClientRect();
+  // A heading without a box (display: contents) has no position to compare.
+  if (hb.width === 0 && hb.height === 0) return label;
+  // A heading only labels what is visually below it in the same column: a sidebar link
+  // must not take the title of a main-column heading that merely precedes it in the DOM.
+  const box = el.getBoundingClientRect();
+  const above = hb.bottom <= box.top + 4;
+  const sameColumn = hb.left < box.right && box.left < hb.right;
+  return above && sameColumn ? label : null;
 }
 
 /**

@@ -2,7 +2,7 @@
 // an "offset" is the position of a document's viewport origin in top-level coords
 // (non-zero only inside same-origin iframes).
 import type { Rect } from "../types.js";
-import { composedAncestors, isRelated, Pt, styleOf, textOf, truncate } from "./util.js";
+import { composedAncestors, explicitRole, isRelated, Pt, styleOf, textOf, truncate } from "./util.js";
 import { accName, labelOf, Cache } from "./context.js";
 
 export interface Box {
@@ -210,16 +210,25 @@ function isSticky(n: Element): boolean {
   return p === "fixed" || p === "sticky";
 }
 
-/** Short description of the element that covers `hit`: nearest landmark or sticky ancestor. */
+/**
+ * Short description of the element that covers `hit`: its nearest fixed or sticky
+ * ancestor-or-self (e.g. `div "Введите запрос…" (fixed)`), else the nearest landmark.
+ */
 export function describeOccluder(hit: Element): string {
-  for (const n of [hit, ...composedAncestors(hit)]) {
-    const sticky = isSticky(n);
-    const landmark = labelOf(n, new Cache(), true);
-    if (landmark) return landmark + (sticky ? " (sticky)" : "");
-    if (sticky) {
-      const nm = accName(n) || textOf(n);
-      return `${n.localName}${nm ? ` "${truncate(nm, 40)}"` : ""} (sticky)`;
-    }
+  const chain = [hit, ...composedAncestors(hit)];
+  const floating = chain.find(isSticky);
+  if (floating) {
+    const suffix = ` (${styleOf(floating).position})`;
+    const landmark = labelOf(floating, new Cache(), true);
+    if (landmark) return landmark + suffix;
+    const nm = accName(floating) || textOf(floating);
+    const named = nm ? ` "${truncate(nm, 40)}"` : "";
+    return `${explicitRole(floating) ?? floating.localName}${named}${suffix}`;
+  }
+  const cache = new Cache();
+  for (const n of chain) {
+    const landmark = labelOf(n, cache, true);
+    if (landmark) return landmark;
   }
   return hit.localName;
 }

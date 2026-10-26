@@ -74,10 +74,22 @@ export function stateOf(el: Element): ElementState {
   return s;
 }
 
+/** Rich-text editors draw their placeholder through one of these attributes (no native attribute). */
+const PLACEHOLDER_ATTRS = ["placeholder", "aria-placeholder", "data-placeholder"];
+
 export function placeholderOf(el: Element): string | undefined {
-  if (el.localName !== "input" && el.localName !== "textarea") return undefined;
-  const ph = el.getAttribute("placeholder");
-  return ph ? collapse(ph) || undefined : undefined;
+  const isField =
+    el.localName === "input" ||
+    el.localName === "textarea" ||
+    isContentEditable(el) ||
+    explicitRole(el) === "textbox";
+  if (!isField) return undefined;
+  for (const attr of PLACEHOLDER_ATTRS) {
+    const v = el.getAttribute(attr);
+    const t = v ? collapse(v) : "";
+    if (t) return t;
+  }
+  return undefined;
 }
 
 function optionsCountOf(el: Element): number | undefined {
@@ -137,7 +149,7 @@ export function buildInfo(c: Cand, id: number): ElementInfo {
     kind: c.kind,
     role: c.role,
     name: c.name,
-    state: stateOf(el),
+    state: stateOf(c.proxy ?? el),
     rect: roundRect(c.rect),
     inViewport: c.inViewport,
     context: c.ctx,
