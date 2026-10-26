@@ -8,6 +8,12 @@ import { phase } from "./trace.js";
 
 export type ImageMode = "auto" | "always" | "never";
 
+/**
+ * Screenshot width sent to the agent (D-14). The image is for layout; text and values come in the
+ * element list. 960 keeps Ads Manager labels and table headers readable at ~0.55 of the 1280 cost.
+ */
+const IMAGE_WIDTH = 960;
+
 export interface ToolOutput {
   text: string;
   image?: Buffer;
@@ -57,7 +63,7 @@ export class View {
     const fresh = await this.snapshot().catch(() => snap);
     const elements = fresh.elements.filter((e) => ids.has(e.id));
     return phase("marks", async () => {
-      const { image, factor } = await resizeForBudget(shot.data, 1280);
+      const { image, factor } = await resizeForBudget(shot.data, IMAGE_WIDTH);
       return drawMarks(image, elements, { scale: shot.dpr * factor });
     });
   }
