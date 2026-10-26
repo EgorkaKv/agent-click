@@ -7,6 +7,9 @@ export const SIGNIFICANT_ADDED = 10;
 const MAX_ADDED = 30;
 const MAX_REMOVED = 15;
 const MAX_CHANGED = 30;
+/** This many elements with the same occluder change are summarized in one line. */
+const OVERLAY_MIN = 3;
+const SCROLLED_NAMES = 3;
 
 const SCALAR_FIELDS = ["name", "value", "role", "error", "occludedBy", "inViewport"] as const;
 
@@ -42,7 +45,8 @@ function formatFieldValue(field: string, v: unknown): string {
     return v === "mixed" ? "◩" : v ? "☑" : "☐";
   }
   if (field.startsWith("state.")) return v ? "on" : "off";
-  if (field === "name" || field === "value" || field === "error") {
+  if (field === "name" || field === "value") return quoted(String(v ?? ""));
+  if (field === "error") {
     return v === undefined ? "none" : quoted(String(v));
   }
   if (field === "occludedBy") return v === undefined ? "none" : String(v);
@@ -88,7 +92,8 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): SnapshotDiff {
   return diff;
 }
 
-export function formatDiff(d: SnapshotDiff): string {
+/** `scrolled`: the view moved, so elements that are gone most likely left the rendered area (virtualized lists). */
+export function formatDiff(d: SnapshotDiff, opts: { scrolled?: boolean } = {}): string {
   const lines: string[] = [];
 
   if (d.urlChanged) {
@@ -104,17 +109,38 @@ export function formatDiff(d: SnapshotDiff): string {
   for (const el of d.added.slice(0, MAX_ADDED)) lines.push(`+ ${formatElement(el)}`);
   if (d.added.length > MAX_ADDED) lines.push(`+ … ${d.added.length - MAX_ADDED} more`);
 
-  for (const el of d.removed.slice(0, MAX_REMOVED)) lines.push(`- ${briefElement(el)}`);
-  if (d.removed.length > MAX_REMOVED) lines.push(`- … ${d.removed.length - MAX_REMOVED} more`);
+  if (opts.scrolled && d.removed.length) {
+    const names = d.removed.slice(0, SCROLLED_NAMES).map(briefElement).join(", ");
+    lines.push(`↕ ${d.removed.length} out of view after scrolling: ${names}${d.removed.length > SCROLLED_NAMES ? ", …" : ""}`);
+  } else {
+    for (const el of d.removed.slice(0, MAX_REMOVED)) lines.push(`- ${briefElement(el)}`);
+    if (d.removed.length > MAX_REMOVED) lines.push(`- … ${d.removed.length - MAX_REMOVED} more`);
+  }
 
-  for (const c of d.changed.slice(0, MAX_CHANGED)) {
+  // A modal or loading overlay changes occludedBy of the whole background: one line per overlay.
+  const overlay = new Map<string, number>();
+  for (const c of d.changed) {
+    if (!c.fields.includes("occludedBy")) continue;
+    const key = c.after.occludedBy ? `now covered by ${c.after.occludedBy}` : `no longer covered by ${c.before.occludedBy}`;
+    overlay.set(key, (overlay.get(key) ?? 0) + 1);
+  }
+  const collapsed = new Set([...overlay].filter(([, n]) => n >= OVERLAY_MIN).map(([k]) => k));
+  for (const k of collapsed) lines.push(`~ ${overlay.get(k)} elements ${k}`);
+  const changed = d.changed
+    .map((c) => {
+      const key = c.after.occludedBy ? `now covered by ${c.after.occludedBy}` : `no longer covered by ${c.before.occludedBy}`;
+      return collapsed.has(key) ? { ...c, fields: c.fields.filter((f) => f !== "occludedBy") } : c;
+    })
+    .filter((c) => c.fields.length > 0);
+
+  for (const c of changed.slice(0, MAX_CHANGED)) {
     const parts = c.fields.map(
       (f) =>
         `${f} ${formatFieldValue(f, fieldRaw(c.before, f))} → ${formatFieldValue(f, fieldRaw(c.after, f))}`,
     );
     lines.push(`~ ${briefElement(c.after)}: ${parts.join("; ")}`);
   }
-  if (d.changed.length > MAX_CHANGED) lines.push(`~ … ${d.changed.length - MAX_CHANGED} more`);
+  if (changed.length > MAX_CHANGED) lines.push(`~ … ${changed.length - MAX_CHANGED} more`);
 
   if (d.newMessages.length) {
     lines.push(`Messages: ${d.newMessages.map(quoted).join(" · ")}`);

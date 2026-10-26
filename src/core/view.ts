@@ -4,6 +4,7 @@ import { formatSnapshot } from "../render/format.js";
 import { drawMarks, resizeForBudget } from "../render/marks.js";
 import type { Snapshot, SnapshotDiff, SnapshotOptions } from "../types.js";
 import type { Session } from "./session.js";
+import { phase } from "./trace.js";
 
 export type ImageMode = "auto" | "always" | "never";
 
@@ -38,17 +39,27 @@ export class View {
     if (settled === false && !text.includes("⏳")) text = text.replace("✓ settled", "⏳ not settled (timeout)");
     const diff = this.last ? diffSnapshots(this.last, snap) : undefined;
     const want = image === "always" || (image === "auto" && (!this.shownImage || !!diff?.significant));
-    this.last = snap;
-    return { text: withEvents(text, this.session), image: want ? await this.image(snap) : undefined };
+    // A scoped or full look is not what the next act compares with: it would report everything
+    // outside the scope as added, or everything off-screen as removed.
+    if (snapOpts.scope === undefined && !snapOpts.full) this.last = snap;
+    const shot = want ? await this.image(snap) : undefined;
+    if (want && !shot) text += `\n${NO_SCREENSHOT}`;
+    return { text: withEvents(text, this.session), image: shot };
   }
 
   /** Marked screenshot of the current viewport for the given snapshot. */
   async image(snap: Snapshot): Promise<Buffer | undefined> {
     const shot = await this.session.screenshot();
     if (!shot) return undefined;
-    const { image, factor } = await resizeForBudget(shot.data, 1280);
     this.shownImage = true;
-    return drawMarks(image, snap.elements, { scale: shot.dpr * factor });
+    // Boxes as of the frame, not of the snapshot: accordions and lists move while the frame is captured.
+    const ids = new Set(snap.elements.map((e) => e.id));
+    const fresh = await this.snapshot().catch(() => snap);
+    const elements = fresh.elements.filter((e) => ids.has(e.id));
+    return phase("marks", async () => {
+      const { image, factor } = await resizeForBudget(shot.data, 1280);
+      return drawMarks(image, elements, { scale: shot.dpr * factor });
+    });
   }
 
   /** Decide whether a change deserves an automatic screenshot (D-6). */
@@ -58,6 +69,8 @@ export class View {
     return !this.shownImage || !!diff?.significant;
   }
 }
+
+export const NO_SCREENSHOT = "(no screenshot: the browser did not render a frame in time — is the window minimized?)";
 
 export function withEvents(text: string, session: Session): string {
   const events = session.takeEvents();

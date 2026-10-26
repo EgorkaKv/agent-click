@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Act traps</title>
+<style>
+  body { font-family: sans-serif; }
+  .dd { position: relative; display: inline-block; }
+  .dd-button { cursor: pointer; border: 1px solid #888; padding: 4px 8px; min-width: 120px; }
+  .dd-list { position: absolute; top: 100%; left: 0; background: #fff; border: 1px solid #888; }
+  .dd-list [role=option] { padding: 4px 8px; cursor: pointer; }
+  dialog { width: 300px; }
+</style>
+</head>
+<body>
+<main>
+  <section aria-label="Budget">
+    <h2>Budget</h2>
+    <label>Daily budget <input id="budget"></label>
+    <label>Name <input id="name"></label>
+    <label>Currency
+      <select id="currency"><option>USD</option><option>EUR</option><option>PLN</option></select>
+    </label>
+    <label><input type="checkbox" id="agree"> Agree</label>
+
+    <span>Country</span>
+    <div class="dd">
+      <div class="dd-button" role="combobox" aria-label="Country" aria-expanded="false" tabindex="0" id="country">Choose…</div>
+    </div>
+    <span>Age</span>
+    <div class="dd">
+      <div class="dd-button" role="combobox" aria-label="Age" aria-expanded="false" tabindex="0" id="age">18</div>
+    </div>
+    <label>City <input id="city" role="combobox" value="Wa"></label>
+
+    <button id="noop">Nothing</button>
+    <button id="open">Open dialog</button>
+    <button id="ok">Save draft</button>
+    <button id="conflict">Publish</button>
+    <button id="other">Sync partner</button>
+    <a href="/report" target="_blank" rel="noopener">Open report</a>
+    <p id="status" role="status"></p>
+    <table><tr><th>Event</th><th>Mapped to</th></tr><tr><td>rc_trial</td><td>fb_mobile_purchase</td></tr></table>
+    <div id="feed" aria-label="Feed" style="height: 60px; overflow: auto">
+      <script>document.write(Array.from({ length: 20 }, (_, i) => `<p>Entry ${i + 1}</p>`).join(""))</script>
+      <button>Load more</button>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg" aria-label="Confirm">
+  <p>Delete campaign "Spring sale"?</p>
+  <button id="cancel">Cancel</button>
+</dialog>
+
+<script>
+  // Reformats on blur like real ad managers do: "50" → "50.00".
+  const budget = document.getElementById("budget");
+  budget.addEventListener("blur", () => {
+    const n = Number(budget.value);
+    if (budget.value && !Number.isNaN(n)) budget.value = n.toFixed(2);
+  });
+
+  // Custom dropdown: the list is created on open (late, like a lazy-loaded menu) and removed on close.
+  const country = document.getElementById("country");
+  country.addEventListener("click", () => {
+    const open = country.getAttribute("aria-expanded") === "true";
+    document.querySelector(".dd-list")?.remove();
+    country.setAttribute("aria-expanded", String(!open));
+    if (!open) setTimeout(() => country.parentElement.append(optionList(["Poland", "Germany", "Ukraine"], country)), 700);
+  });
+
+  // Virtualized list: only 6 rows of 18…65 exist at a time, re-rendered on scroll.
+  const age = document.getElementById("age");
+  age.addEventListener("click", () => {
+    document.querySelector(".dd-list")?.remove();
+    const list = document.createElement("div");
+    list.className = "dd-list";
+    list.setAttribute("role", "listbox");
+    list.style.cssText = "height: 120px; width: 120px; overflow: auto";
+    const inner = document.createElement("div");
+    inner.style.cssText = "position: relative; height: 960px";
+    list.append(inner);
+    const render = () => {
+      const first = Math.floor(list.scrollTop / 20);
+      inner.replaceChildren(...Array.from({ length: 6 }, (_, i) => first + i).filter((i) => i < 48).map((i) => {
+        const opt = document.createElement("div");
+        opt.setAttribute("role", "option");
+        opt.textContent = String(18 + i);
+        opt.style.cssText = `position: absolute; top: ${i * 20}px; height: 20px`;
+        opt.addEventListener("click", () => { age.textContent = opt.textContent; list.remove(); });
+        return opt;
+      }));
+    };
+    list.addEventListener("scroll", render);
+    render();
+    age.parentElement.append(list);
+  });
+
+  // Autocomplete that reacts to key events only (like Meta's location search), not to inserted text.
+  const city = document.getElementById("city");
+  city.addEventListener("keyup", () => {
+    document.querySelector(".dd-list")?.remove();
+    const hits = ["Warsaw", "Wroclaw"].filter((c) => c.toLowerCase().startsWith(city.value.toLowerCase()));
+    if (city.value && hits.length) city.parentElement.append(optionList(hits, city));
+  });
+
+  function optionList(names, field) {
+    const list = document.createElement("div");
+    list.className = "dd-list";
+    list.setAttribute("role", "listbox");
+    for (const name of names) {
+      const opt = document.createElement("div");
+      opt.setAttribute("role", "option");
+      opt.textContent = name;
+      opt.addEventListener("click", () => {
+        if (field.localName === "input") field.value = name;
+        else field.textContent = name;
+        field.setAttribute("aria-expanded", "false");
+        list.remove();
+      });
+      list.append(opt);
+    }
+    return list;
+  }
+
+  document.getElementById("open").addEventListener("click", () => document.getElementById("dlg").showModal());
+  document.getElementById("cancel").addEventListener("click", () => document.getElementById("dlg").close());
+
+  const status = document.getElementById("status");
+  async function post(path) {
+    const res = await fetch(path, { method: "POST", body: "{}" });
+    status.textContent = res.ok ? "Saved" : "Error " + res.status;
+  }
+  document.getElementById("ok").addEventListener("click", () => post("/save"));
+  document.getElementById("conflict").addEventListener("click", () => post("/publish"));
+  // Another site (localhost vs 127.0.0.1) answering 500: reported, but not the step's failure.
+  document.getElementById("other").addEventListener("click", async () => {
+    await fetch(location.href.replace("127.0.0.1", "localhost") + "publish", { method: "POST", body: "{}" }).catch(() => {});
+    status.textContent = "Synced";
+  });
+</script>
+</body>
+</html>

@@ -2,10 +2,11 @@
 // Stops at the first failed step (api-draft principle 2: no silent success).
 import * as input from "../browser/input.js";
 import { diffSnapshots, formatDiff } from "../render/diff.js";
-import { formatElement } from "../render/format.js";
-import type { ElementInfo, LocateResult, Snapshot, Step, StepResult, TargetSpec } from "../types.js";
+import { briefElement, formatElement } from "../render/format.js";
+import type { ElementInfo, LocateResult, Snapshot, SnapshotDiff, Step, StepResult, TargetSpec } from "../types.js";
 import type { Session } from "./session.js";
-import { withEvents, type ImageMode, type ToolOutput, type View } from "./view.js";
+import { phase } from "./trace.js";
+import { NO_SCREENSHOT, withEvents, type ImageMode, type ToolOutput, type View } from "./view.js";
 
 const WAIT_DEFAULT_MS = 10_000;
 
@@ -14,31 +15,91 @@ class StepError extends Error {}
 export async function act(session: Session, view: View, steps: Step[], screenshot?: ImageMode | boolean): Promise<ToolOutput> {
   const start = await view.snapshot();
   const results: StepResult[] = [];
+  session.forgetNewTabs(); // only tabs opened by these steps are followed
   for (const step of steps) {
-    const res = await runStep(session, view, step);
+    const res = await phase(`step ${Object.keys(step)[0]}`, () => runStep(session, view, step));
     results.push(res);
     if (!res.ok) break;
+    // A new tab takes over, like in the browser; later steps were planned for the old page.
+    if (session.hasNewTab()) return inNewTab(session, view, results, steps.length, screenshot);
   }
 
   const settle = await session.settle(1000);
   const end = await view.snapshot();
-  const diff = diffSnapshots(view.last ?? start, end);
+  const base = view.last ?? start;
+  const diff = withoutFocusNoise(diffSnapshots(base, end));
   view.last = end;
 
   const lines = results.map(formatResult);
   const done = results.filter((r) => r.ok).length;
   if (done < steps.length) lines.push(`  stopped: ${done} of ${steps.length} done`);
   if (!settle.settled) lines.push(`⏳ still loading: ${settle.pending.join("; ")}`);
-  lines.push("", "Changes:", formatDiff(diff));
-  const image = view.wantsImage(screenshot, diff) ? await view.image(end) : undefined;
+  // Another page: its state says more than a list of everything that disappeared from the old one.
+  if (diff.urlChanged && newPage(diff.urlChanged.from, diff.urlChanged.to)) {
+    const out = await view.look({ image: imageMode(screenshot), settled: settle.settled });
+    lines.push("", `Now on ${end.url}:`, out.text);
+    return { text: lines.join("\n"), image: out.image };
+  }
+  lines.push("", "Changes:", formatDiff(diff, { scrolled: base.scroll.y !== end.scroll.y || results.some((r) => r.summary.startsWith("scroll")) }));
+  const want = view.wantsImage(screenshot, diff);
+  const image = want ? await view.image(end) : undefined;
+  if (want && !image) lines.push(NO_SCREENSHOT);
   return { text: withEvents(lines.join("\n"), session), image };
 }
 
+function imageMode(screenshot?: ImageMode | boolean): ImageMode {
+  return screenshot === true ? "always" : screenshot === false ? "never" : (screenshot ?? "auto");
+}
+
+/** A different path (not just a hash or query change within the same view). */
+function newPage(from: string, to: string): boolean {
+  try {
+    const a = new URL(from);
+    const b = new URL(to);
+    return a.origin !== b.origin || a.pathname !== b.pathname;
+  } catch {
+    return from !== to;
+  }
+}
+
+async function inNewTab(session: Session, view: View, results: StepResult[], total: number, screenshot?: ImageMode | boolean): Promise<ToolOutput> {
+  const page = await session.followNewTab();
+  const lines = results.map(formatResult);
+  if (results.length < total) lines.push(`  stopped: ${results.length} of ${total} done — the rest was meant for the old tab`);
+  if (!page) return { text: withEvents([...lines, "", "A new tab opened but could not be attached; use tabs."].join("\n"), session) };
+  view.reset();
+  const settle = await session.settle(5000);
+  const out = await view.look({ image: imageMode(screenshot), settled: settle.settled });
+  lines.push("", "Now in the new tab (tabs to go back):", out.text);
+  return { text: lines.join("\n"), image: out.image };
+}
+
+/** Focus moving around is a side effect of every click; the agent does not need it in the diff. */
+function withoutFocusNoise(diff: SnapshotDiff): SnapshotDiff {
+  const changed = diff.changed
+    .map((c) => ({ ...c, fields: c.fields.filter((f) => f !== "state.focused") }))
+    .filter((c) => c.fields.length > 0);
+  return { ...diff, changed };
+}
+
 function formatResult(r: StepResult): string {
-  const head = `${r.ok ? (r.warning ? "⚠" : "✓") : "✗"} ${r.summary}${r.detail ? ` ${r.detail}` : ""}`;
-  const net = r.network.map((n) => `    ${n.method} ${n.url} → ${n.status || "failed"}${n.error ? ` ${n.error}` : ""}`);
+  const sep = r.detail && !/^[→=(]/.test(r.detail) ? " — " : " ";
+  const head = `${r.ok ? (r.warning ? "⚠" : "✓") : "✗"} ${r.summary}${r.detail ? `${sep}${r.detail}` : ""}`;
+  // SPAs send dozens of identical calls per click (POST /api/graphql/): one line per distinct request.
+  const groups = new Map<string, number>();
+  for (const n of r.network) {
+    const status = n.cancelled ? "cancelled by the page" : `${n.status || "failed"}${n.error ? ` ${n.error}` : ""}`;
+    const line = `${n.method} ${n.url} → ${status}${n.thirdParty ? " (third-party, ignored)" : ""}`;
+    groups.set(line, (groups.get(line) ?? 0) + 1);
+  }
+  const lines = [...groups].map(([line, count]) => `    ${count > 1 ? line.replace(" → ", ` ×${count} → `) : line}`);
+  // Failures first so a cut never hides them.
+  lines.sort((a, b) => Number(/→ (failed|[45]\d\d)/.test(b)) - Number(/→ (failed|[45]\d\d)/.test(a)));
+  const net = lines.length > MAX_NET_LINES ? [...lines.slice(0, MAX_NET_LINES), `    … ${lines.length - MAX_NET_LINES} more`] : lines;
   return [head, ...net].join("\n");
 }
+
+const MAX_NET_LINES = 6;
 
 async function runStep(session: Session, view: View, step: Step): Promise<StepResult> {
   const { network } = await session.current();
@@ -48,8 +109,8 @@ async function runStep(session: Session, view: View, step: Step): Promise<StepRe
     const detail = await execute(ctx, step);
     await network.drain();
     const net = network.mutationsSince(mark);
-    const failed = net.find((n) => n.status === 0 || n.status >= 400);
-    return { ok: !failed, summary: ctx.summary, detail: failed ? `${detail ?? ""} — request failed`.trim() : detail, warning: ctx.warning, network: net };
+    const failed = net.find((n) => !n.thirdParty && !n.cancelled && (n.status === 0 || n.status >= 400));
+    return { ok: !failed, summary: ctx.summary, detail: failed ? (detail ? `${detail}; request failed` : "request failed") : detail, warning: ctx.warning, network: net };
   } catch (e) {
     const msg = e instanceof StepError ? e.message : `error: ${(e as Error).message}`;
     await network.drain().catch(() => {});
@@ -85,14 +146,24 @@ async function execute(ctx: StepCtx, step: Step): Promise<string | undefined> {
 
 // ---- target resolution ----
 
-async function locate(ctx: StepCtx, target: TargetSpec): Promise<Extract<LocateResult, { ok: true }>> {
-  const res = await ctx.session.call("locate", target, { scroll: true });
+/** A target named by text may still be rendering (calendar, list after a click): look again for this long. */
+const LOCATE_RETRY_MS = 1500;
+
+async function locate(ctx: StepCtx, target: TargetSpec, opts: { anyState?: boolean } = {}): Promise<Extract<LocateResult, { ok: true }>> {
+  const deadline = Date.now() + LOCATE_RETRY_MS;
+  let res = await ctx.session.call("locate", target, { scroll: true, ...opts });
+  while (!res.ok && res.error === "not_found" && typeof target !== "number" && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250));
+    res = await ctx.session.call("locate", target, { scroll: true, ...opts });
+  }
   if (res.ok) {
-    ctx.summary = `${ctx.summary.split(" ")[0]} ${formatElement(res.info)}`;
+    ctx.summary = `${ctx.summary.split(" ")[0]} ${briefElement(res.info)}`;
     return res;
   }
   const cands = res.candidates?.length ? `\n${res.candidates.map((c) => `      ${formatElement(c)}`).join("\n")}` : "";
-  throw new StepError(`${res.error}: ${res.message}${cands}`);
+  // Long lists and forms drop rows that scrolled away; the number comes back when they are rendered again.
+  const hint = / is not rendered$/.test(res.message) ? " (likely dropped while off-screen: scroll its list back, or target it by text)" : "";
+  throw new StepError(`${res.error}: ${res.message}${hint}${cands}`);
 }
 
 function isTextField(info: ElementInfo): boolean {
@@ -116,11 +187,14 @@ async function clickLike(ctx: StepCtx, target: TargetSpec, kind: "click" | "dblc
   const after = await ctx.view.snapshot().catch(() => undefined);
   if (!after) return "→ page is navigating";
   const diff = diffSnapshots(before, after);
+  // Focus moving to the clicked button is not an effect; focusing a text field is.
+  const changed = diff.changed.filter((c) => c.fields.some((f) => f !== "state.focused"));
+  if (ctx.session.hasNewTab()) return "→ opened a new tab";
   const anyChange =
     after.url !== urlBefore ||
-    diff.added.length + diff.removed.length + diff.changed.length + diff.newMessages.length > 0 ||
-    network.mutationsSince(mark).length > 0 ||
-    (await ctx.session.call("describe", loc.id))?.state.focused;
+    diff.added.length + diff.removed.length + changed.length + diff.newMessages.length > 0 ||
+    network.mutationsSince(mark).some((n) => !n.thirdParty) ||
+    (isTextField(loc.info) && (await ctx.session.call("describe", loc.id))?.state.focused);
   if (!anyChange) throw new StepError("no visible change after the click");
   return effectSummary(before, after);
 }
@@ -140,6 +214,8 @@ async function fill(ctx: StepCtx, fields: Record<string, string>): Promise<strin
     if (loc.occludedBy) throw new StepError(`[${loc.id}] occluded by ${loc.occludedBy}`);
     if (!(await ctx.session.call("focusAndSelectAll", loc.id))) throw new StepError(`[${loc.id}] cannot be focused`);
     if (value === "") await input.press(cdp, "Delete");
+    // Autocomplete fields often react to key events only, not to inserted text.
+    else if (wantsKeys(loc.info, value)) await input.typeText(cdp, value);
     else await input.insertText(cdp, value);
     let actual = (await ctx.session.call("describe", loc.id))?.value ?? "";
     if (actual !== value && !isMasked(actual)) {
@@ -147,12 +223,14 @@ async function fill(ctx: StepCtx, fields: Record<string, string>): Promise<strin
       await ctx.session.call("setNativeValue", loc.id, value);
       actual = (await ctx.session.call("describe", loc.id))?.value ?? "";
     }
-    // Commit: many forms reformat or validate on blur ("50" → "50,00").
-    await (await ctx.session.current()).page.evaluate("document.activeElement && document.activeElement.blur()");
+    // Commit: many forms reformat or validate on blur ("50" → "50,00"). An autocomplete keeps
+    // focus: blur would close the suggestions the agent is about to pick from.
+    if (!wantsKeys(loc.info, value)) await (await ctx.session.current()).page.evaluate("document.activeElement && document.activeElement.blur()");
     await ctx.session.settle();
     const committed = (await ctx.session.call("describe", loc.id))?.value ?? actual;
     const label = `[${loc.id}] ${JSON.stringify(loc.info.name)}`;
     if (committed === value || isMasked(committed)) out.push(`${label} = ${JSON.stringify(value)}`);
+    else if (sameNumber(committed, value)) out.push(`${label} = ${JSON.stringify(committed)}`);
     else {
       ctx.warning = true;
       out.push(`${label}: requested ${JSON.stringify(value)} → actual ${JSON.stringify(committed)}`);
@@ -166,6 +244,20 @@ function isMasked(v: string): boolean {
   return v.length > 0 && /^•+$/.test(v);
 }
 
+/** "10" and "10,00" / "1 000.00" are the same amount; a page formatting it is not a warning. */
+function sameNumber(a: string, b: string): boolean {
+  const num = (s: string) => (/^[\d\s., ]+$/.test(s) ? Number(s.replace(/[\s ]/g, "").replace(",", ".")) : NaN);
+  const x = num(a);
+  return !Number.isNaN(x) && x === num(b);
+}
+
+/** Longer texts are inserted at once: key by key costs two CDP calls per character. */
+const TYPED_MAX = 60;
+
+function wantsKeys(info: ElementInfo, value: string): boolean {
+  return (info.role === "combobox" || info.role === "searchbox") && value.length <= TYPED_MAX;
+}
+
 async function select(ctx: StepCtx, target: TargetSpec, text: string): Promise<string | undefined> {
   const { cdp } = await ctx.session.current();
   const loc = await locate(ctx, target);
@@ -176,39 +268,78 @@ async function select(ctx: StepCtx, target: TargetSpec, text: string): Promise<s
   }
   if (native.options?.length) throw new StepError(`no option "${text}"; options: ${native.options.join(" | ")}`);
 
-  // Custom dropdown: open, find the option (typing to filter if needed), click it, verify.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    await input.click(cdp, (await locate(ctx, loc.id)).point);
+  // Custom dropdown: open, find the option (typing to filter, scrolling a virtualized list), click.
+  // No Escape on failure: when the list did not open, Escape goes to the page (in Ads Manager it
+  // closes the editor and offers to publish the drafts).
+  await input.click(cdp, loc.point);
+  await ctx.session.settle();
+  let opts = await waitOptions(ctx, text);
+  let option = pickOption(opts, text);
+  if (!option && isTextField(loc.info)) {
+    await ctx.session.call("focusAndSelectAll", loc.id); // replace the text, never append to it
+    await input.typeText(cdp, text);
     await ctx.session.settle();
-    let option = pickOption(await ctx.session.call("openOptions"), text);
-    if (!option && isTextField(loc.info)) {
-      await input.insertText(cdp, text);
-      await ctx.session.settle();
-      option = pickOption(await ctx.session.call("openOptions"), text);
-    }
-    if (!option) {
-      const opts = await ctx.session.call("openOptions");
-      if (attempt === 1) throw new StepError(`no option "${text}"${opts.length ? `; visible options: ${opts.map((o) => o.name).join(" | ")}` : "; the list did not open"}`);
-      await input.press(cdp, "Escape");
-      continue;
-    }
-    const optLoc = await ctx.session.call("locate", option.id, { scroll: true });
-    if (!optLoc.ok) continue;
-    await input.click(cdp, optLoc.point);
-    await ctx.session.settle();
-    const value = (await ctx.session.call("describe", loc.id))?.value ?? "";
-    if (value.toLowerCase().includes(text.toLowerCase())) return `= ${JSON.stringify(value)}`;
-    if (attempt === 1) {
-      ctx.warning = true;
-      return `clicked option ${JSON.stringify(option.name)}, field shows ${JSON.stringify(value)}`;
-    }
+    opts = await waitOptions(ctx, text);
+    option = pickOption(opts, text);
   }
-  throw new StepError(`could not select "${text}"`);
+  if (!option && opts.length) option = await scrollToOption(ctx, opts, text);
+  if (!option) {
+    throw new StepError(`no option "${text}"${opts.length ? `; visible options: ${opts.map((o) => o.name).join(" | ")}` : "; the list did not open"}`);
+  }
+  const optLoc = await ctx.session.call("locate", option.id, { scroll: true });
+  if (!optLoc.ok) throw new StepError(`option ${briefElement(option)}: ${optLoc.message}`);
+  await input.click(cdp, optLoc.point);
+  await ctx.session.settle();
+  const value = (await ctx.session.call("describe", loc.id))?.value ?? "";
+  if (value.toLowerCase().includes(text.toLowerCase())) return `= ${JSON.stringify(value)}`;
+  ctx.warning = true;
+  return `clicked option ${JSON.stringify(option.name)}, field shows ${JSON.stringify(value)}`;
 }
 
-function pickOption(options: ElementInfo[], text: string): ElementInfo | undefined {
+/** Lists often open with a delay after the click or the typing: poll until the option shows up. */
+const OPTIONS_WAIT_MS = 3000;
+
+async function waitOptions(ctx: StepCtx, text: string): Promise<ElementInfo[]> {
+  const deadline = Date.now() + OPTIONS_WAIT_MS;
+  for (;;) {
+    const opts = await ctx.session.call("openOptions");
+    if (matching(opts, text).length || Date.now() > deadline) return opts;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+function matching(options: ElementInfo[], text: string): ElementInfo[] {
   const t = text.trim().toLowerCase();
-  return options.find((o) => o.name.trim().toLowerCase() === t) ?? options.find((o) => o.name.toLowerCase().includes(t));
+  const exact = options.filter((o) => o.name.trim().toLowerCase() === t);
+  return exact.length ? exact : options.filter((o) => o.name.toLowerCase().includes(t));
+}
+
+/** The one option matching the text; several matches are an error, as for any target. */
+function pickOption(options: ElementInfo[], text: string): ElementInfo | undefined {
+  const found = matching(options, text);
+  if (found.length > 1) {
+    throw new StepError(`ambiguous option "${text}", matches:\n${found.map((o) => `      ${formatElement(o)}`).join("\n")}`);
+  }
+  return found[0];
+}
+
+/** Virtualized lists render only the visible options: scroll the list from the top until the option appears. */
+async function scrollToOption(ctx: StepCtx, opts: ElementInfo[], text: string): Promise<ElementInfo | undefined> {
+  const { page } = await ctx.session.current();
+  // A point inside the list: the first option (the last one is often clipped by the list's edge).
+  const first = opts[0];
+  const at = await ctx.session.call("locate", first.id, { scroll: true });
+  if (!at.ok) return undefined;
+  const point = at.point;
+  const step = (to: "top" | number) => page.evaluate(`(${scrollBy.toString()})(${JSON.stringify(to)}, ${JSON.stringify(point)})`) as Promise<ScrollOutcome>;
+  if (!(await step("top")).what) return undefined;
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 150)); // let the list render the new rows
+    const option = pickOption(await ctx.session.call("openOptions"), text);
+    if (option) return option;
+    if (!(await step(Math.max(100, first.rect.h * 4))).moved) return undefined;
+  }
+  return undefined;
 }
 
 async function check(ctx: StepCtx, target: TargetSpec, want: boolean): Promise<string | undefined> {
@@ -231,22 +362,92 @@ async function press(ctx: StepCtx, combo: string): Promise<string | undefined> {
 }
 
 async function scroll(ctx: StepCtx, spec: { in?: TargetSpec; to: "top" | "bottom" | number | TargetSpec }): Promise<string | undefined> {
-  const { cdp, page } = await ctx.session.current();
+  const { page } = await ctx.session.current();
   const { to } = spec;
   if (typeof to !== "number" && to !== "top" && to !== "bottom") {
-    await locate(ctx, to); // locate scrolls the target into view
-    return undefined;
+    const before = await page.evaluate(SCROLL_POSITIONS);
+    const loc = await locate(ctx, to); // locate scrolls the target into view, inner containers included
+    const moved = before !== (await page.evaluate(SCROLL_POSITIONS));
+    await ctx.session.settle();
+    // Some pages scroll back (focus handling, virtualized forms): check where the element ended up.
+    const now = await ctx.session.call("describe", loc.id);
+    if (!now?.inViewport) throw new StepError(moved ? "scrolled to it, but the page moved it out of view again" : "nothing scrolled and the element is still out of view");
+    return moved ? undefined : "(already in view)";
   }
-  if (spec.in === undefined) {
-    const js = to === "top" ? "window.scrollTo(0, 0)" : to === "bottom" ? "window.scrollTo(0, document.documentElement.scrollHeight)" : `window.scrollBy(0, ${to})`;
-    await page.evaluate(js);
-  } else {
-    const loc = await locate(ctx, spec.in);
-    const deltaY = to === "top" ? -1e6 : to === "bottom" ? 1e6 : to;
-    await cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: loc.point.x, y: loc.point.y, deltaX: 0, deltaY });
-  }
+  // Without `in`: the document, or the largest scrollable container when the document does not scroll.
+  let point: { x: number; y: number } | null = null;
+  if (spec.in !== undefined) point = (await locate(ctx, spec.in, { anyState: true })).point;
+  const r = (await page.evaluate(`(${scrollBy.toString()})(${JSON.stringify(to)}, ${JSON.stringify(point)})`)) as ScrollOutcome;
   await ctx.session.settle();
-  return undefined;
+  if (r.moved) return undefined;
+  if (r.what === null) throw new StepError(point ? "no scrollable container at that element" : "nothing on the page scrolls");
+  if (r.atEdge) return `(already at the ${typeof to === "number" ? (to < 0 ? "top" : "bottom") : to} of ${r.what})`;
+  throw new StepError(`${r.what} did not scroll`);
+}
+
+interface ScrollOutcome {
+  what: string | null;
+  moved: boolean;
+  atEdge: boolean;
+}
+
+/** All non-zero scroll offsets as a string, to tell whether anything moved. */
+const SCROLL_POSITIONS = `(() => {
+  const out = [scrollX, scrollY];
+  for (const el of document.querySelectorAll("*")) if (el.scrollTop || el.scrollLeft) out.push(el.scrollTop, el.scrollLeft);
+  return out.join(",");
+})()`;
+
+// Runs in the page (serialized with toString), so it must be self-contained.
+function scrollBy(to: "top" | "bottom" | number, point: { x: number; y: number } | null): ScrollOutcome {
+  const scrollable = (el: Element) => {
+    const oy = getComputedStyle(el).overflowY;
+    return (oy === "auto" || oy === "scroll" || oy === "overlay") && el.scrollHeight > el.clientHeight + 1;
+  };
+  let box: Element | null = null;
+  let what = "page";
+  if (point) {
+    // The nearest scrollable ancestor that can still move that way: nested lists are common, and
+    // the inner one is often already at its edge while the agent means the outer one.
+    const up = to === "top" || (typeof to === "number" && to < 0);
+    const canMove = (el: Element) => (up ? el.scrollTop > 0 : el.scrollTop < el.scrollHeight - el.clientHeight - 1);
+    let first: Element | null = null;
+    for (let el = document.elementFromPoint(point.x, point.y); el; el = el.parentElement) {
+      if (el === document.body || el === document.documentElement) break;
+      if (!scrollable(el)) continue;
+      first ??= el;
+      if (canMove(el)) {
+        box = el;
+        break;
+      }
+    }
+    box ??= first;
+  } else if (document.documentElement.scrollHeight <= innerHeight + 1) {
+    let best = 0;
+    for (const el of document.querySelectorAll("*")) {
+      if (!scrollable(el)) continue;
+      const r = el.getBoundingClientRect();
+      const area = Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) * Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+      if (area > best) {
+        best = area;
+        box = el;
+      }
+    }
+    if (!box) return { what: null, moved: false, atEdge: false };
+  }
+  if (box) {
+    const label = box.getAttribute("aria-label") || box.id || box.localName;
+    what = `scroll container "${label.slice(0, 40)}"`;
+  } else if (point && document.documentElement.scrollHeight <= innerHeight + 1) {
+    return { what: null, moved: false, atEdge: false };
+  }
+  const el = box ?? document.scrollingElement ?? document.documentElement;
+  const before = el.scrollTop;
+  const max = el.scrollHeight - el.clientHeight;
+  const target = to === "top" ? 0 : to === "bottom" ? max : before + to;
+  el.scrollTop = target;
+  const moved = Math.abs(el.scrollTop - before) >= 1;
+  return { what, moved, atEdge: !moved && (before <= 0 || before >= max - 1) };
 }
 
 async function waitFor(ctx: StepCtx, cond: { text?: string; gone?: string; url?: string }, timeout: number): Promise<string | undefined> {

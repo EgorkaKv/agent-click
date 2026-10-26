@@ -191,3 +191,15 @@ describe("diffSnapshots", () => {
     expect(removed.at(-1)).toBe("- … 5 more");
   });
 });
+
+describe("formatDiff overlays", () => {
+  it("summarizes the background covered by a modal in one line, keeps other changes", () => {
+    const before = base();
+    const after = base().map((e) => ({ ...e, occludedBy: 'dialog "Create"' }));
+    after[0].state = { disabled: true };
+    const out = formatDiff(diffSnapshots(snap({ elements: before }), snap({ elements: after })));
+    expect(out).toContain('~ 10 elements now covered by dialog "Create"');
+    expect(out).toContain("[1]");
+    expect(out.split("\n")).toHaveLength(2);
+  });
+});
