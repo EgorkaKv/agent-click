@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>input fixture</title>
+</head>
+<body style="margin:0">
+  <button id="btn" type="button" style="position:absolute;left:100px;top:100px;width:200px;height:50px">Press</button>
+  <input id="field" value="hello world" style="position:absolute;left:100px;top:200px;width:300px;height:30px">
+  <form id="form" style="position:absolute;left:100px;top:300px">
+    <input id="q" type="text" style="width:300px;height:30px">
+  </form>
+  <script>
+    window.events = [];
+    const record = (type, e) => window.events.push({
+      type, trusted: e.isTrusted, x: e.clientX, y: e.clientY, detail: e.detail,
+      key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey, alt: e.altKey,
+    });
+    for (const t of ["mousedown", "mouseup", "click", "dblclick", "keydown", "keyup"]) {
+      document.addEventListener(t, (e) => record(t, e), true);
+    }
+    window.submitted = false;
+    document.getElementById("form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      window.submitted = true;
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Context fixture</title>
+</head>
+<body>
+<header><nav aria-label="Main"><a href="#home">Home</a></nav></header>
+<main>
+  <section aria-labelledby="buildH">
+    <h2 id="buildH">Build</h2>
+    <button>Run build</button>
+  </section>
+  <h2>Versions</h2>
+  <button>Create version</button>
+  <fieldset>
+    <legend>Contacts</legend>
+    <input id="cf" aria-label="Contact first name">
+  </fieldset>
+  <table>
+    <tr><td>Campaign A</td><td><button>Edit</button></td></tr>
+  </table>
+  <form aria-label="Filters"><button type="button">Apply</button></form>
+  <main-deep-wrapper></main-deep-wrapper>
+  <section aria-label="Outer">
+    <fieldset>
+      <legend>Mid</legend>
+      <section aria-label="Inner">
+        <div><button>Deep</button></div>
+      </section>
+    </fieldset>
+  </section>
+</main>
+<footer><a href="#terms">Terms</a></footer>
+</body>
+</html>

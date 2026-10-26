@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Status fixture</title>
+<style>
+  body { margin: 0; font: 14px sans-serif; }
+  .toast { position: fixed; right: 10px; bottom: 10px; background: #111; color: #fff; padding: 8px; }
+  .spinner { width: 20px; height: 20px; background: #888; border-radius: 10px; }
+  .badge { background: #16a34a; color: #fff; border-radius: 4px; padding: 2px 6px; display: inline-block; }
+</style>
+</head>
+<body>
+<div role="status">Saved draft</div>
+<div class="toast">Changes saved</div>
+<div role="progressbar" aria-label="Loading" style="width:100px; height:4px; background:#ccc"></div>
+<section aria-label="Build">
+  <div class="spinner"></div>
+  <p>Building</p>
+  <span class="badge">Active</span>
+</section>
+<section aria-label="Phones">
+  <label for="phone1">Phone</label><input id="phone1" name="phone">
+  <label for="phone2">Phone</label><input id="phone2" name="phone">
+</section>
+<div style="height:1500px"></div>
+<section aria-label="Versions">
+  <button>Delete</button>
+</section>
+</body>
+</html>

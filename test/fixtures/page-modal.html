@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Modal fixture</title>
+</head>
+<body>
+<button id="open">Open dialog</button>
+<h2>Page heading</h2>
+<button>Behind button</button>
+<dialog id="d" aria-labelledby="dt">
+  <h3 id="dt">Add phase</h3>
+  <label for="pn">Phase name</label>
+  <input id="pn">
+  <button>Save</button>
+  <button>Cancel</button>
+</dialog>
+<script>
+  document.getElementById('open').addEventListener('click', () => document.getElementById('d').showModal());
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>network fixture</title>
+</head>
+<body>
+  <p>Network fixture. Helpers call fetch so that the test can observe the requests.</p>
+  <script>
+    window.post = (url, body) =>
+      fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+      }).then(async (r) => { await r.text(); return r.status; });
+    // Bodies are read on purpose: Chromium reports loadingFinished only after the body is consumed.
+    window.get = (url) => fetch(url).then(async (r) => { await r.text(); return r.status; });
+  </script>
+</body>
+</html>

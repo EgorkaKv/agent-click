@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scroll container fixture</title>
+<style>
+  body { margin: 0; font: 14px sans-serif; }
+  nav { position: absolute; left: 0; top: 0; width: 200px; height: 300px; overflow: auto; }
+  nav a { display: block; height: 30px; line-height: 30px; padding: 0 8px; }
+  main { position: absolute; left: 220px; top: 0; width: 400px; height: 300px; overflow: auto; }
+</style>
+</head>
+<body>
+<nav aria-label="Sidebar" id="nav">
+  <a href="#l1">Link 1</a><a href="#l2">Link 2</a><a href="#l3">Link 3</a><a href="#l4">Link 4</a><a href="#l5">Link 5</a>
+  <a href="#l6">Link 6</a><a href="#l7">Link 7</a><a href="#l8">Link 8</a><a href="#l9">Link 9</a><a href="#l10">Link 10</a>
+  <a href="#l11">Link 11</a><a href="#l12">Link 12</a><a href="#l13">Link 13</a><a href="#l14">Link 14</a><a href="#l15">Link 15</a>
+  <a href="#l16">Link 16</a><a href="#l17">Link 17</a><a href="#l18">Link 18</a><a href="#l19">Link 19</a><a href="#l20">Link 20</a>
+</nav>
+<main id="main">
+  <div style="height:150px"></div>
+  <label for="plan">Plan</label>
+  <select id="plan"><option>Basic</option><option>Pro</option></select>
+  <div style="height:400px"></div>
+  <button type="button">Bottom button</button>
+</main>
+</body>
+</html>

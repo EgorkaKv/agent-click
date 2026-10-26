@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>settle fixture</title>
+</head>
+<body>
+  <button id="go" type="button">Go</button>
+  <div id="out"></div>
+  <script>
+    // Own DOM counter, so the settle test does not depend on dist/page.js.
+    let mutations = 0;
+    new MutationObserver(() => mutations++).observe(document.body, {
+      subtree: true, childList: true, attributes: true, characterData: true,
+    });
+    window.__mutations = () => mutations;
+    document.getElementById("go").addEventListener("click", async () => {
+      const r = await fetch("/api/slow500");
+      const data = await r.json();
+      const p = document.createElement("p");
+      p.textContent = "done " + data.name;
+      document.getElementById("out").appendChild(p);
+    });
+  </script>
+</body>
+</html>

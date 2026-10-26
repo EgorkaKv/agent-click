@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Locate fixture</title>
+<style>
+  body { margin: 0; font: 14px sans-serif; }
+  #covered { position: absolute; top: 650px; left: 20px; width: 120px; height: 30px; }
+  footer.sticky { position: fixed; bottom: 0; left: 0; right: 0; height: 80px; background: #fff; }
+</style>
+</head>
+<body>
+<header><button>Save</button></header>
+<button id="covered">Covered</button>
+<footer class="sticky">Sticky footer text</footer>
+<main>
+  <section aria-label="Edit">
+    <button>Save</button>
+    <button>Discard</button>
+  </section>
+  <div style="height:2000px"></div>
+  <button id="far">Publish</button>
+  <div style="height:1000px"></div>
+  <button disabled>Locked</button>
+</main>
+</body>
+</html>

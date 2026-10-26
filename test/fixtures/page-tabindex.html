@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tabindex container fixture</title>
+<style>
+  body { margin: 0; font: 14px sans-serif; }
+  #region { height: 300px; overflow: auto; width: 500px; }
+</style>
+</head>
+<body>
+<main id="region" tabindex="0">
+  <h2>AppsFlyer Integration</h2>
+  <form aria-label="Config">
+    <label for="ak">API key</label>
+    <input id="ak" type="text">
+    <button type="button">Save config</button>
+  </form>
+  <div id="card" style="cursor:pointer">
+    <button type="button">Card action one</button>
+    <a href="#x">Card link</a>
+  </div>
+  <div id="single" style="cursor:pointer"><span>Pointer single</span></div>
+</main>
+</body>
+</html>

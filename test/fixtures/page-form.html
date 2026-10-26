@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Form fixture</title>
+<style>
+  body { font: 14px sans-serif; margin: 16px; }
+  label { display: block; margin: 8px 0; }
+  .badge { background: #2563eb; color: #fff; border-radius: 10px; padding: 2px 8px; display: inline-block; }
+</style>
+</head>
+<body>
+<h1>Create contact</h1>
+<form aria-label="Contact form">
+  <label for="firstName">First name</label>
+  <input id="firstName" name="first" type="text" placeholder="Jane" value="Ivan">
+
+  <label for="pw">Password</label>
+  <input id="pw" type="password" name="pw" value="secret123">
+
+  <label for="email">Email</label>
+  <input id="email" type="email" required aria-invalid="true" aria-describedby="emailErr" value="bad">
+  <span id="emailErr">Enter a valid email</span>
+
+  <label><input id="sub" type="checkbox" checked> Subscribe</label>
+  <label><input id="locked" type="checkbox" disabled> Locked option</label>
+
+  <fieldset>
+    <legend>Plan</legend>
+    <label><input type="radio" name="plan" value="a" checked> Basic</label>
+    <label><input type="radio" name="plan" value="b"> Pro</label>
+  </fieldset>
+
+  <label for="country">Country</label>
+  <select id="country" name="country"><option>Russia</option><option selected>Germany</option><option>France</option></select>
+
+  <label for="notes">Notes</label>
+  <textarea id="notes" name="notes">Hello there</textarea>
+
+  <button type="button" disabled>Submit later</button>
+  <button type="button" id="more" aria-expanded="false">More</button>
+  <span class="badge">Active</span>
+</form>
+</body>
+</html>
