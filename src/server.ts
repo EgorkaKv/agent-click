@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// MCP server (stdio). Tools: look, act, read, navigate, tabs, eval. See docs/api-draft.md.
+// MCP server (stdio). Tools: look, act, find, read, navigate, tabs, eval. See docs/api-draft.md.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { act } from "./core/act.js";
+import { findIn } from "./core/find.js";
 import { Session } from "./core/session.js";
 import { phase, traced } from "./core/trace.js";
 import { View, withEvents, type ToolOutput } from "./core/view.js";
@@ -14,6 +15,8 @@ const view = new View(session);
 const server = new McpServer({ name: "agent-click", version: "0.1.0" });
 
 const imageMode = z.enum(["auto", "always", "never"]);
+/** find scans the whole page; Ads Manager has ~1000 elements on a busy screen. */
+const FIND_SCAN_MAX = 3000;
 
 server.registerTool(
   "look",
@@ -163,6 +166,33 @@ server.registerTool(
     run("read", { scope }, async () => {
       const { text, truncated } = await session.call("read", scope);
       return { text: (text || "(no text)") + (truncated ? "\n… (truncated; narrow the scope)" : "") };
+    }),
+);
+
+server.registerTool(
+  "find",
+  {
+    description:
+      "Find elements by words instead of reading the whole page: returns the few matching elements with their numbers, " +
+      "values, states and context, also those above/below the view. Searches names, values, placeholders. Use it to locate " +
+      "or check something specific (\"budget\", \"Сохранить\", a field's value). Not needed before acting: act accepts text targets.",
+    inputSchema: {
+      query: z.string().describe("Words that should appear in the element's name or value; all must match, case-insensitive"),
+      role: z.string().optional().describe("Only these roles, e.g. \"textbox\" or \"button|link\""),
+      in: z.union([z.number(), z.string()]).optional().describe("Limit to a container: element number or dialog/section/heading text"),
+    },
+  },
+  async ({ query, role, in: scope }) =>
+    run("find", { query, role, in: scope }, async () => {
+      const snap = await session.call("snapshot", { full: true, scope, maxElements: FIND_SCAN_MAX });
+      const { text, count } = findIn(snap, query, { role, in: scope });
+      const notes: string[] = [];
+      if (snap.layer) notes.push(`(searched inside ${snap.layer} only: it covers the page)`);
+      if (snap.truncated) notes.push(`(the page has more than ${FIND_SCAN_MAX} elements; narrow with in)`);
+      if (!count && (await session.call("hasText", query, scope))) {
+        notes.push("The text is on the page, but not as a control or short text: use read to see it in context.");
+      }
+      return { text: withEvents([text, ...notes].join("\n"), session) };
     }),
 );
 
