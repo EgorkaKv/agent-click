@@ -17,6 +17,8 @@ const PAGE_SCRIPT_PATH = HERE.includes("dist") ? join(HERE, "..", "page.js") : j
 const NOT_INSTALLED = "__agent_click_not_installed__";
 /** Heavy pages (Ads Manager) take 2–3 s for a frame, more when the window is in the background. */
 const SCREENSHOT_TIMEOUT_MS = 8000;
+/** One connection per chat: kept between tasks, closed after this long without tool calls (D-16). */
+const IDLE_DISCONNECT_MS = 2 * 60 * 60 * 1000;
 
 type ApiMethod = Exclude<keyof PageApi, "version">;
 type ApiReturn<M extends ApiMethod> = PageApi[M] extends (...args: never[]) => infer R ? R : never;
@@ -35,11 +37,13 @@ export class Session {
   private dialogs: string[] = [];
   /** Tabs opened since the last report (popups, target=_blank, also with noopener). */
   private newTabs: Target[] = [];
+  private idleTimer?: NodeJS.Timeout;
 
   /** `connect` is replaceable for tests (a headless browser instead of the user's one). */
   constructor(private connect: () => Promise<Browser> = connectBrowser) {}
 
   async current(): Promise<Attached> {
+    this.touch();
     if (this.attached && !this.attached.page.isClosed() && this.browser?.connected) return this.attached;
     const browser = await this.ensureBrowser();
     const page = this.attached && !this.attached.page.isClosed() ? this.attached.page : await pickActivePage(browser);
@@ -140,6 +144,20 @@ export class Session {
   /** Forget tabs opened so far (the agent opened them itself). */
   forgetNewTabs(): void {
     this.newTabs = [];
+  }
+
+  /** Restarts the idle timer: the connection lives across tasks of one chat and closes after a long pause. */
+  private touch(): void {
+    clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => this.disconnect(), IDLE_DISCONNECT_MS);
+    this.idleTimer.unref(); // never keeps the process alive by itself
+  }
+
+  /** Drops the browser connection; the next tool call connects again (and the browser asks Allow). */
+  disconnect(): void {
+    this.detach();
+    this.browser?.disconnect().catch(() => {});
+    this.browser = undefined;
   }
 
   private script(): string {
