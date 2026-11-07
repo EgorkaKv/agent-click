@@ -116,11 +116,55 @@ function isModal(el: Element): boolean {
   return el.getAttribute("aria-modal") === "true";
 }
 
+function isFixed(el: Element): boolean {
+  return styleOf(el).position === "fixed";
+}
+
+/** A fixed element covering at least 90% of the viewport: a modal backdrop or overlay. */
+function isBackdrop(el: Element, view: { w: number; h: number }): boolean {
+  if (!isFixed(el)) return false;
+  const r = el.getBoundingClientRect();
+  const w = Math.min(r.right, view.w) - Math.max(r.left, 0);
+  const h = Math.min(r.bottom, view.h) - Math.max(r.top, 0);
+  return w > 0 && h > 0 && w * h >= 0.9 * view.w * view.h;
+}
+
+/**
+ * A role=dialog without aria-modal that still blocks the page (Meta's confirmations): every
+ * sampled viewport point outside it hits an empty full-screen fixed overlay or its own fixed root.
+ */
+function isOverlayDialog(el: Element): boolean {
+  const role = el.getAttribute("role");
+  if ((role !== "dialog" && role !== "alertdialog") || el.getAttribute("aria-modal") === "false") return false;
+  const doc = el.ownerDocument;
+  const win = doc.defaultView;
+  if (!win) return false;
+  const view = { w: win.innerWidth, h: win.innerHeight };
+  let root: Element | null = isFixed(el) ? el : null;
+  for (const a of composedAncestors(el)) if (a.nodeType === 1 && isFixed(a)) root = a;
+  const r = el.getBoundingClientRect();
+  let outside = 0;
+  for (const fx of [0.03, 0.5, 0.97]) {
+    for (const fy of [0.03, 0.5, 0.97]) {
+      const x = view.w * fx;
+      const y = view.h * fy;
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) continue;
+      outside++;
+      const hit = doc.elementFromPoint(x, y);
+      // Page content under the point has text; a backdrop (or the layer around the dialog) has none.
+      if (!hit || hasOwnText(hit, el)) return false;
+      if (root && composedContains(root, hit)) continue;
+      if (![hit, ...composedAncestors(hit)].some((a) => a.nodeType === 1 && isBackdrop(a, view))) return false;
+    }
+  }
+  return outside >= 3;
+}
+
 /** The topmost visible modal (last in document order), if any. */
 export function findLayer(all: Walked[]): Layer | null {
   let top: Element | null = null;
   for (const { el } of all) {
-    if (isModal(el) && isRendered(el)) top = el;
+    if ((isModal(el) || isOverlayDialog(el)) && isRendered(el)) top = el;
   }
   if (!top) return null;
   const n = accName(top);

@@ -60,6 +60,8 @@ export function resolveScope(q: number | string, coll: Collection): Element | nu
   if (!nq) return null;
   const lm = landmarkScope(nq, coll);
   if (lm) return lm;
+  const byRole = roleScope(nq, coll);
+  if (byRole) return byRole;
   const byLabel = labelScope(nq, coll);
   if (byLabel) return byLabel;
   let named: Element | null = null;
@@ -125,6 +127,27 @@ function landmarkScope(nq: string, coll: Collection): Element | null {
     if (isRendered(el)) return el;
   }
   return null;
+}
+
+/** Role words accepted as scope: the open container with that role, when there is exactly one. */
+const ROLE_WORDS = new Set(["dialog", "alertdialog", "menu", "listbox"]);
+
+/**
+ * A role word (dialog, menu, ...) names an open container without a name, as the layer header
+ * prints it ("Layer: dialog"). With several open, the modal layer is the one meant.
+ */
+function roleScope(nq: string, coll: Collection): Element | null {
+  if (!ROLE_WORDS.has(nq)) return null;
+  const open: Element[] = [];
+  for (const { el } of coll.all) {
+    const ex = explicitRole(el);
+    const isDialogTag = nq === "dialog" && el.localName === "dialog";
+    if (!(ex === nq || isDialogTag)) continue;
+    if (isRendered(el)) open.push(el);
+  }
+  if (open.length === 1) return open[0];
+  const layer = coll.layer?.el;
+  return layer && open.includes(layer) ? layer : null;
 }
 
 /** A label exactly as the output prints it, e.g. section "Production" or nav "Side navigation". */

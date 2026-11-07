@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, Page } from "puppeteer-core";
 import { launchTestBrowser } from "../helpers/browser.js";
-import { openPage, snapshot } from "./helpers.js";
+import { openHtml, openPage, snapshot } from "./helpers.js";
 
 describe("modal layer", () => {
   let browser: Browser;
@@ -35,6 +35,25 @@ describe("modal layer", () => {
     expect(names).not.toContain("button:Behind button");
     expect(names).not.toContain("heading:Page heading");
     for (const e of snap.elements) expect(e.context[0]).toBe('dialog "Add phase"');
+    await page.close();
+  });
+
+  it("treats a role=dialog over a full-screen backdrop as a layer, but not a popover (Meta, no aria-modal)", async () => {
+    const page: Page = await openHtml(
+      browser,
+      `<h1>Campaigns</h1><button>Behind</button><p>Some page text that fills the page.</p>
+       <div id="pop" role="dialog" aria-label="Filters" style="position:absolute;top:60px;left:10px;width:200px"><button>Apply</button></div>`,
+    );
+    expect((await snapshot(page)).layer).toBeUndefined();
+    await page.evaluate(() => {
+      const layer = document.createElement("div");
+      layer.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center";
+      layer.innerHTML = '<div role="dialog" aria-labelledby="t" style="background:#fff;width:300px;padding:20px"><h3 id="t">Publish drafts?</h3><button>Close</button></div>';
+      document.body.append(layer);
+    });
+    const snap = await snapshot(page);
+    expect(snap.layer).toBe('dialog "Publish drafts?"');
+    expect(snap.elements.map((e: any) => e.name)).not.toContain("Behind");
     await page.close();
   });
 });
