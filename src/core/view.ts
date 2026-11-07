@@ -38,7 +38,8 @@ export class View {
   /** Full look: settle state, element list, image by mode. Updates `last`. */
   async look(opts: SnapshotOptions & { image?: ImageMode; settled?: boolean; pendingRequests?: number } = {}): Promise<ToolOutput> {
     const { image = "auto", settled, pendingRequests, ...snapOpts } = opts;
-    const snap = await this.snapshot(snapOpts);
+    // A scope is a request for that container's content, also the part scrolled out of view.
+    const snap = await this.snapshot(snapOpts.scope !== undefined ? { ...snapOpts, full: true } : snapOpts);
     let pending = pendingRequests;
     if (pending === undefined) pending = (await this.session.current()).network.inflight();
     let text = formatSnapshot(snap, { pendingRequests: pending });
