@@ -146,6 +146,7 @@ export function clipBox(el: Element, off: Pt): Box {
     const cs = styleOf(a);
     const isFrame = a.localName === "iframe";
     if (!isFrame && cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+    if (overflowIsViewports(a)) continue;
     let o = offsets.get(a.ownerDocument);
     if (!o) {
       o = offsetOf(a);
@@ -166,6 +167,18 @@ export function clipBox(el: Element, off: Pt): Box {
     if (isEmptyBox(box)) break;
   }
   return box;
+}
+
+/**
+ * The root's overflow belongs to the viewport, and so does the body's when the root's is
+ * visible (CSS overflow propagation): such an element clips nothing beyond the viewport.
+ */
+function overflowIsViewports(a: Element): boolean {
+  const doc = a.ownerDocument;
+  if (a === doc.documentElement) return true;
+  if (a !== doc.body) return false;
+  const root = styleOf(doc.documentElement);
+  return root.overflowX === "visible" && root.overflowY === "visible";
 }
 
 /** Visible part of a rect within a clip box, or null if nothing is visible. */

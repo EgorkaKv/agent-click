@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Browser, Page } from "puppeteer-core";
 import { launchTestBrowser } from "../helpers/browser.js";
-import { api, find, openPage, snapshot } from "./helpers.js";
+import { api, find, openHtml, openPage, snapshot } from "./helpers.js";
 
 describe("clipping by scroll containers", () => {
   let browser: Browser;
@@ -96,3 +96,16 @@ describe("clipping by scroll containers", () => {
     expect(r.point.y).toBeLessThanOrEqual(300);
   });
 });
+
+it("body with overflow:auto and a visible root does not clip the scrolled document (Google Flights)", async () => {
+  const { browser, close } = await launchTestBrowser();
+  try {
+    const rows = Array.from({ length: 40 }, (_, i) => `<p><button>Day ${i + 1}</button></p>`).join("");
+    const page = await openHtml(browser, `<style>body { overflow: auto; height: 100vh; margin: 0 }</style>${rows}`);
+    await page.evaluate(() => window.scrollTo(0, 600));
+    const els = (await snapshot(page)).elements;
+    expect(els.filter((e: any) => e.role === "button" && e.inViewport).length).toBeGreaterThan(10);
+  } finally {
+    await close();
+  }
+}, 60_000);
