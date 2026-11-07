@@ -275,7 +275,7 @@ describe("formatSnapshot", () => {
     expect(first).not.toContain("?q=1");
   });
 
-  it("escapes double quotes and backslashes in quoted fields and flattens newlines", () => {
+  it("keeps inner quotes as they are in quoted fields and flattens newlines", () => {
     const s = snap({
       elements: [
         el({ id: 1, role: "button", name: 'Say "hi"' }),
@@ -286,10 +286,10 @@ describe("formatSnapshot", () => {
     });
     const lines = formatSnapshot(s).split("\n").slice(-4);
     expect(lines).toEqual([
-      '  [1] button "Say \\"hi\\""',
+      '  [1] button "Say "hi""',
       '  [2] textbox "Note" = "line1 line2"',
-      '  [3] textbox "Code" = "" placeholder "C:\\\\dir\\""',
-      '  [4] textbox "Code2" = "" ⚠ "bad \\"x\\" y"',
+      '  [3] textbox "Code" = "" placeholder "C:\\dir""',
+      '  [4] textbox "Code2" = "" ⚠ "bad "x" y"',
     ]);
   });
 

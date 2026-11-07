@@ -203,3 +203,39 @@ describe("formatDiff overlays", () => {
     expect(out.split("\n")).toHaveLength(2);
   });
 });
+
+describe("formatDiff noise (live session 3)", () => {
+  it("shows only the changed part of names, caps renames, collapses re-rendered nodes", () => {
+    const day = (id: number, price: number) => el({ id, role: "button", name: `суббота, ${id} декабря 2026 г., ${price} долларов США` });
+    const card = (id: number, name: string) => el({ id, role: "link", name, context: ['list "Results"'] });
+    const before = snap({ elements: [...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => day(i, 100)), card(20, "TAP 202 $"), card(21, "LOT 210 $")] });
+    const after = snap({ elements: [...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => day(i, 200)), card(40, "TAP 202 $"), card(41, "LOT 210 $")] });
+    const lines = formatDiff(diffSnapshots(before, after)).split("\n");
+    expect(lines[0]).toBe("↻ 2 re-rendered with the same content, new numbers [40]–[41]");
+    expect(lines[1]).toBe('~ [1] button "суббота, 1 декабря 2026 г., 200 долларов США": name "…100…" → "…200…"');
+    expect(lines.at(-1)).toBe("~ … 2 more changed");
+    expect(lines).toHaveLength(8);
+  });
+
+  it("collapses the page shown again after a dialog closes", () => {
+    const page = [1, 2, 3, 4, 5].map((id) => el({ id, role: "button", name: `B${id}` }));
+    const before = snap({ layer: 'dialog "Publish?"', elements: [el({ id: 9, role: "button", name: "Close" })] });
+    const after = snap({ elements: page });
+    const out = formatDiff(diffSnapshots(before, after));
+    expect(out).toContain('→ closed dialog "Publish?"');
+    expect(out).toContain("↩ 5 elements of the page are visible again");
+    expect(out).not.toContain("+ [1]");
+    // Closing after a scroll inside the dialog: its elements are gone, not scrolled away.
+    expect(formatDiff(diffSnapshots(before, after), { scrolled: true })).toContain("- [9]");
+  });
+
+  it("collapses the page hidden under a dialog that opened", () => {
+    const page = [1, 2, 3, 4, 5].map((id) => el({ id, role: "button", name: `B${id}` }));
+    const before = snap({ elements: page });
+    const after = snap({ layer: 'dialog "Publish?"', elements: [el({ id: 9, role: "button", name: "Close" })] });
+    const out = formatDiff(diffSnapshots(before, after));
+    expect(out).toContain('↧ 5 elements of the page are under dialog "Publish?" now');
+    expect(out).toContain('+ [9] button "Close"');
+    expect(out).not.toContain("- [1]");
+  });
+});

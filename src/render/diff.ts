@@ -10,6 +10,10 @@ const MAX_CHANGED = 30;
 /** This many elements with the same occluder change are summarized in one line. */
 const OVERLAY_MIN = 3;
 const SCROLLED_NAMES = 3;
+/** Common text this long around a changed name is replaced with "…". */
+const NAME_CONTEXT_MIN = 12;
+/** Name-only changes shown one per line; the rest are counted (a calendar re-pricing 18 days). */
+const MAX_RENAMED = 6;
 
 const SCALAR_FIELDS = ["name", "value", "role", "error", "occludedBy", "inViewport"] as const;
 
@@ -45,12 +49,32 @@ function formatFieldValue(field: string, v: unknown): string {
     return v === "mixed" ? "◩" : v ? "☑" : "☐";
   }
   if (field.startsWith("state.")) return v ? "on" : "off";
-  if (field === "name" || field === "value") return quoted(String(v ?? ""));
+  if (field === "value") return quoted(String(v ?? ""));
   if (field === "error") {
     return v === undefined ? "none" : quoted(String(v));
   }
   if (field === "occludedBy") return v === undefined ? "none" : String(v);
   return String(v);
+}
+
+/** Only the differing middle of two names: "Sat, 5 Dec, 113 $, lowest" → "Sat, 5 Dec, 201 $" gives "…113 $, lowest" → "…201 $". */
+export function nameChange(a: string, b: string): string {
+  let p = 0;
+  while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  let q = 0;
+  while (q < a.length - p && q < b.length - p && a[a.length - 1 - q] === b[b.length - 1 - q]) q++;
+  // Cut on a word boundary so a number is not split ("113" vs "201" sharing nothing is fine, "1 13" is not).
+  while (p > 0 && /\S/.test(a[p - 1])) p--;
+  while (q > 0 && /\S/.test(a[a.length - q])) q--;
+  const head = p >= NAME_CONTEXT_MIN ? "…" : "";
+  const tail = q >= NAME_CONTEXT_MIN ? "…" : "";
+  const cut = (s: string) => s.slice(head ? p : 0, tail ? s.length - q : s.length).trim();
+  return `${quoted(head + cut(a) + tail)} → ${quoted(head + cut(b) + tail)}`;
+}
+
+/** Same role, name and context: a node the page re-created, not a new element. */
+function sameKey(e: ElementInfo): string {
+  return `${e.role}|${e.name}|${e.context.join(">")}`;
 }
 
 export function diffSnapshots(before: Snapshot, after: Snapshot): SnapshotDiff {
@@ -92,6 +116,13 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): SnapshotDiff {
   return diff;
 }
 
+/** "[40]–[53]" for consecutive numbers, else the first few. */
+function idRange(ids: number[]): string {
+  const sorted = [...ids].sort((a, b) => a - b);
+  if (sorted[sorted.length - 1] - sorted[0] === sorted.length - 1) return sorted.length > 1 ? `[${sorted[0]}]–[${sorted[sorted.length - 1]}]` : `[${sorted[0]}]`;
+  return sorted.slice(0, 8).map((i) => `[${i}]`).join(" ") + (sorted.length > 8 ? " …" : "");
+}
+
 /** `scrolled`: the view moved, so elements that are gone most likely left the rendered area (virtualized lists). */
 export function formatDiff(d: SnapshotDiff, opts: { scrolled?: boolean } = {}): string {
   const lines: string[] = [];
@@ -106,15 +137,47 @@ export function formatDiff(d: SnapshotDiff, opts: { scrolled?: boolean } = {}): 
     else if (from && to) lines.push(`→ layer ${from} → ${to}`);
   }
 
-  for (const el of d.added.slice(0, MAX_ADDED)) lines.push(`+ ${formatElement(el)}`);
-  if (d.added.length > MAX_ADDED) lines.push(`+ … ${d.added.length - MAX_ADDED} more`);
+  // The page re-created nodes with the same content (a re-rendered list): one line with the new numbers.
+  const gone = new Map<string, ElementInfo[]>();
+  for (const el of d.removed) gone.set(sameKey(el), [...(gone.get(sameKey(el)) ?? []), el]);
+  const recreated: ElementInfo[] = [];
+  const reused = new Set<ElementInfo>();
+  for (const el of d.added) {
+    const old = gone.get(sameKey(el))?.shift();
+    if (!old) continue;
+    recreated.push(el);
+    reused.add(old);
+  }
+  let added = d.added.filter((e) => !recreated.includes(e));
+  const removedAll = d.removed.filter((e) => !reused.has(e));
+  if (recreated.length) {
+    const ids = recreated.map((e) => e.id);
+    lines.push(`↻ ${recreated.length} re-rendered with the same content, new numbers ${idRange(ids)}`);
+  }
 
-  if (opts.scrolled && d.removed.length) {
-    const names = d.removed.slice(0, SCROLLED_NAMES).map(briefElement).join(", ");
-    lines.push(`↕ ${d.removed.length} out of view after scrolling: ${names}${d.removed.length > SCROLLED_NAMES ? ", …" : ""}`);
+  // After a dialog closes, the page under it is listed again: it was there before, nothing new.
+  if (d.layerChanged?.from && !d.layerChanged.to && added.length > SCROLLED_NAMES) {
+    lines.push(`↩ ${added.length} elements of the page are visible again (use look to list them)`);
+    added = [];
+  }
+
+  // The mirror case: a dialog opened, the page under it is no longer listed. It is still there.
+  let removed = removedAll;
+  if (d.layerChanged?.to && removed.length > SCROLLED_NAMES) {
+    lines.push(`↧ ${removed.length} elements of the page are under ${d.layerChanged.to} now`);
+    removed = [];
+  }
+
+  for (const el of added.slice(0, MAX_ADDED)) lines.push(`+ ${formatElement(el)}`);
+  if (added.length > MAX_ADDED) lines.push(`+ … ${added.length - MAX_ADDED} more`);
+
+  // A closed dialog's elements are gone, not scrolled away.
+  if (opts.scrolled && !d.layerChanged && removed.length) {
+    const names = removed.slice(0, SCROLLED_NAMES).map(briefElement).join(", ");
+    lines.push(`↕ ${removed.length} out of view after scrolling: ${names}${removed.length > SCROLLED_NAMES ? ", …" : ""}`);
   } else {
-    for (const el of d.removed.slice(0, MAX_REMOVED)) lines.push(`- ${briefElement(el)}`);
-    if (d.removed.length > MAX_REMOVED) lines.push(`- … ${d.removed.length - MAX_REMOVED} more`);
+    for (const el of removed.slice(0, MAX_REMOVED)) lines.push(`- ${briefElement(el)}`);
+    if (removed.length > MAX_REMOVED) lines.push(`- … ${removed.length - MAX_REMOVED} more`);
   }
 
   // A modal or loading overlay changes occludedBy of the whole background: one line per overlay.
@@ -133,14 +196,24 @@ export function formatDiff(d: SnapshotDiff, opts: { scrolled?: boolean } = {}): 
     })
     .filter((c) => c.fields.length > 0);
 
-  for (const c of changed.slice(0, MAX_CHANGED)) {
-    const parts = c.fields.map(
-      (f) =>
-        `${f} ${formatFieldValue(f, fieldRaw(c.before, f))} → ${formatFieldValue(f, fieldRaw(c.after, f))}`,
+  let shown = 0;
+  let renamed = 0;
+  let hidden = 0;
+  for (const c of changed) {
+    const onlyName = c.fields.length === 1 && c.fields[0] === "name";
+    if (shown >= MAX_CHANGED || (onlyName && ++renamed > MAX_RENAMED)) {
+      hidden++;
+      continue;
+    }
+    shown++;
+    const parts = c.fields.map((f) =>
+      f === "name"
+        ? `name ${nameChange(c.before.name, c.after.name)}`
+        : `${f} ${formatFieldValue(f, fieldRaw(c.before, f))} → ${formatFieldValue(f, fieldRaw(c.after, f))}`,
     );
     lines.push(`~ ${briefElement(c.after)}: ${parts.join("; ")}`);
   }
-  if (changed.length > MAX_CHANGED) lines.push(`~ … ${changed.length - MAX_CHANGED} more`);
+  if (hidden) lines.push(`~ … ${hidden} more changed`);
 
   if (d.newMessages.length) {
     lines.push(`Messages: ${d.newMessages.map(quoted).join(" · ")}`);

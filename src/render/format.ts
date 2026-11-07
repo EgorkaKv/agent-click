@@ -9,7 +9,8 @@ const MAX_URL = 100;
  * (\\ and \"), newlines become a space, so the line stays parseable.
  */
 export function quoted(s: string): string {
-  const flat = s.replace(/\r\n|\r|\n/g, " ").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  // Inner quotes stay as they are: escaped, they cost tokens and read as part of the name.
+  const flat = s.replace(/\r\n|\r|\n/g, " ");
   return `"${flat}"`;
 }
 
@@ -85,7 +86,7 @@ export function formatSnapshot(s: Snapshot, opts?: { pendingRequests?: number })
   const header: string[] = [];
   header.push(`Page: ${s.title} · ${shortUrl(s.url)}`);
 
-  let status = `scroll ${s.scroll.y}/${s.scroll.maxY}`;
+  let status = `scroll ${Math.round(s.scroll.y)}/${Math.round(s.scroll.maxY)}`;
   status = `Viewport ${s.viewport.w}×${s.viewport.h} · ${status} · `;
   if (loading) {
     const reasons: string[] = [];
