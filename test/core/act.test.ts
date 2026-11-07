@@ -61,6 +61,21 @@ describe("act", () => {
     expect(out).toContain('"Name" = "Spring"');
   });
 
+  it("fill types key by key when a controlled field reverts on blur (Meta budget)", async () => {
+    const out = await run({ fill: { "Lifetime budget": "0,50" } });
+    expect(out).toContain('"Lifetime budget" = "0,50"');
+    expect(out).not.toContain("⚠");
+  });
+
+  it("press after fill goes to the filled field; caret keys there are not a warning", async () => {
+    const nav = await run({ fill: { Question: "Hi" } }, { press: "ArrowLeft" });
+    expect(nav).toContain("(in text field)");
+    expect(nav).not.toContain("⚠");
+    const out = await run({ fill: { Question: "Hello" } }, { press: "Enter" });
+    expect(out).not.toContain("✗");
+    expect(out).toContain("Sent: Hello");
+  });
+
   it("selects in native and custom dropdowns, checks a checkbox", async () => {
     const out = await run({ select: ["Currency", "EUR"] }, { select: ["Country", "Germany"] }, { check: ["Agree", true] });
     expect(out).not.toContain("✗");
@@ -75,6 +90,14 @@ describe("act", () => {
     expect(out).not.toContain("✗");
     expect(out).toContain('= "35"');
     expect(out).toContain('= "Warsaw"');
+  });
+
+  it("select types into the search field the click opened; press and scroll without effect fail", async () => {
+    expect(await run({ select: ["From", "Warsaw"] })).toContain('= "Warsaw"');
+    const enter = await run({ click: "Nothing" }, { press: "Enter" });
+    expect(enter).toMatch(/✗ (click|press)/);
+    expect(await run({ scroll: { by: 200 } })).toMatch(/[✓⚠] scroll/);
+    expect(await run({ scroll: { to: 5, by: 5 } } as unknown as Step)).toContain("either to");
   });
 
   it("a click with no effect stops the batch", async () => {

@@ -52,8 +52,9 @@ server.registerTool(
       "a search/autocomplete field is typed key by key and keeps focus, so its suggestions stay open\n" +
       "  {select: [target, \"option text\"]} — native or custom dropdown/autocomplete\n" +
       "  {check: [target, true|false]} — checkbox/radio/switch\n" +
-      "  {press: \"Enter\" | \"Control+A\" | \"Escape\" ...}\n" +
-      "  {scroll: {to: \"top\"|\"bottom\"|pixels|target, in?: target}} — pixels scroll BY that amount (negative = up); in = an element inside the list to scroll\n" +
+      "  {press: \"Enter\" | \"Control+A\" | \"Escape\" ...} — Enter/Space/Escape with no visible effect fail the step\n" +
+      "  {scroll: {to: \"top\"|\"bottom\"|target}} or {scroll: {by: pixels}} (negative = up); add in: target = an element inside " +
+      "the list to scroll. to: a number is an element, a heading text scrolls to that section. With a dialog open, the dialog scrolls\n" +
       "  {wait_for: {text?|gone?|url?}, timeout?: ms} — wait for a condition, never for a fixed time\n" +
       "  {expect: {text?, in?, url?}} — assert without acting; e.g. before confirming a delete, expect the dialog names the right object",
     inputSchema: {

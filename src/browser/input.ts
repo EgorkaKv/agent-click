@@ -159,6 +159,11 @@ export async function hover(cdp: CDPSession, point: { x: number; y: number }): P
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y, button: "none" });
 }
 
+/** Mouse wheel at a viewport point: scrolls whatever is under it, custom scrollers included. */
+export async function wheel(cdp: CDPSession, point: { x: number; y: number }, deltaY: number): Promise<void> {
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: point.x, y: point.y, deltaX: 0, deltaY });
+}
+
 /** Inserts text at the caret of the focused element (IME-style insertion, works for Cyrillic). */
 export async function insertText(cdp: CDPSession, text: string): Promise<void> {
   await cdp.send("Input.insertText", { text });

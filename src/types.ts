@@ -196,7 +196,7 @@ export type Step =
   | { select: [TargetSpec, string] }
   | { check: [TargetSpec, boolean] }
   | { press: string }
-  | { scroll: { in?: TargetSpec; to: "top" | "bottom" | number | TargetSpec } }
+  | { scroll: { in?: TargetSpec; to?: "top" | "bottom" | TargetSpec; by?: number } }
   | { wait_for: { text?: string; gone?: string; url?: string }; timeout?: number }
   | { expect: { text?: string; in?: TargetSpec; url?: string } };
 

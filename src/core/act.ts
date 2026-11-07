@@ -3,7 +3,7 @@
 import * as input from "../browser/input.js";
 import { diffSnapshots, formatDiff } from "../render/diff.js";
 import { briefElement, formatElement } from "../render/format.js";
-import type { ElementInfo, LocateResult, Snapshot, SnapshotDiff, Step, StepResult, TargetSpec } from "../types.js";
+import type { ElementInfo, LocateOptions, LocateResult, Snapshot, SnapshotDiff, Step, StepResult, TargetSpec } from "../types.js";
 import type { Session } from "./session.js";
 import { phase } from "./trace.js";
 import { NO_SCREENSHOT, withEvents, type ImageMode, type ToolOutput, type View } from "./view.js";
@@ -130,7 +130,11 @@ function describeStep(step: Step): string {
   return `${kind} ${JSON.stringify(arg)}`;
 }
 
+/** Steps after which a human's focus is still in the field they just filled. */
+const KEEPS_FOCUS = ["fill", "press", "wait_for", "expect"];
+
 async function execute(ctx: StepCtx, step: Step): Promise<string | undefined> {
+  if (!KEEPS_FOCUS.some((k) => k in step)) ctx.view.lastFilled = undefined;
   if ("click" in step) return clickLike(ctx, step.click, "click");
   if ("dblclick" in step) return clickLike(ctx, step.dblclick, "dblclick");
   if ("hover" in step) return clickLike(ctx, step.hover, "hover");
@@ -149,7 +153,7 @@ async function execute(ctx: StepCtx, step: Step): Promise<string | undefined> {
 /** A target named by text may still be rendering (calendar, list after a click): look again for this long. */
 const LOCATE_RETRY_MS = 1500;
 
-async function locate(ctx: StepCtx, target: TargetSpec, opts: { anyState?: boolean } = {}): Promise<Extract<LocateResult, { ok: true }>> {
+async function locate(ctx: StepCtx, target: TargetSpec, opts: LocateOptions = {}): Promise<Extract<LocateResult, { ok: true }>> {
   const deadline = Date.now() + LOCATE_RETRY_MS;
   let res = await ctx.session.call("locate", target, { scroll: true, ...opts });
   while (!res.ok && res.error === "not_found" && typeof target !== "number" && Date.now() < deadline) {
@@ -174,7 +178,9 @@ function isTextField(info: ElementInfo): boolean {
 
 async function clickLike(ctx: StepCtx, target: TargetSpec, kind: "click" | "dblclick" | "hover"): Promise<string | undefined> {
   const { cdp, network } = await ctx.session.current();
-  const loc = await locate(ctx, target);
+  let loc = await locate(ctx, target);
+  // A human scrolls a bit when the target hides under a sticky header or a bottom bar.
+  if (loc.occludedBy && /\((fixed|sticky)\)/.test(loc.occludedBy)) loc = await locate(ctx, loc.id, { center: true });
   if (loc.occludedBy) throw new StepError(`occluded by ${loc.occludedBy}: close or scroll it away first`);
   const before = await ctx.view.snapshot();
   const mark = network.mark();
@@ -223,13 +229,20 @@ async function fill(ctx: StepCtx, fields: Record<string, string>): Promise<strin
       await ctx.session.call("setNativeValue", loc.id, value);
       actual = (await ctx.session.call("describe", loc.id))?.value ?? "";
     }
-    // Commit: many forms reformat or validate on blur ("50" → "50,00"). An autocomplete keeps
-    // focus: blur would close the suggestions the agent is about to pick from.
-    if (!wantsKeys(loc.info, value)) await (await ctx.session.current()).page.evaluate("document.activeElement && document.activeElement.blur()");
-    await ctx.session.settle();
-    const committed = (await ctx.session.call("describe", loc.id))?.value ?? actual;
+    const typed = wantsKeys(loc.info, value);
+    let committed = await commit(ctx, loc.id, typed, actual);
+    if (!typed && !matches(committed, value) && value !== "" && value.length <= TYPED_MAX) {
+      // A controlled field (Meta budget) follows key events only: inserted text is reverted on blur
+      // or mixed with the old value ("20,00" + "0,50" → "200,50"). Retype as a human would.
+      if (await ctx.session.call("focusAndSelectAll", loc.id)) {
+        await input.press(cdp, "Control+A");
+        await input.typeText(cdp, value);
+        committed = await commit(ctx, loc.id, false, committed);
+      }
+    }
+    ctx.view.lastFilled = loc.id;
     const label = `[${loc.id}] ${JSON.stringify(loc.info.name)}`;
-    if (committed === value || isMasked(committed)) out.push(`${label} = ${JSON.stringify(value)}`);
+    if (committed === value || isMasked(committed) || sameText(committed, value)) out.push(`${label} = ${JSON.stringify(value)}`);
     else if (sameNumber(committed, value)) out.push(`${label} = ${JSON.stringify(committed)}`);
     else {
       ctx.warning = true;
@@ -238,6 +251,25 @@ async function fill(ctx: StepCtx, fields: Record<string, string>): Promise<strin
   }
   ctx.summary = "fill";
   return out.join("; ");
+}
+
+/**
+ * Commit: many forms reformat or validate on blur ("50" → "50,00"). An autocomplete keeps
+ * focus: blur would close the suggestions the agent is about to pick from.
+ */
+async function commit(ctx: StepCtx, id: number, keepFocus: boolean, fallback: string): Promise<string> {
+  if (!keepFocus) await (await ctx.session.current()).page.evaluate("document.activeElement && document.activeElement.blur()");
+  await ctx.session.settle();
+  return (await ctx.session.call("describe", id))?.value ?? fallback;
+}
+
+function matches(actual: string, value: string): boolean {
+  return actual === value || isMasked(actual) || sameText(actual, value) || sameNumber(actual, value);
+}
+
+/** The page script shortens long values with "…"; a matching prefix is the same text. */
+function sameText(actual: string, value: string): boolean {
+  return actual.endsWith("…") && value.startsWith(actual.slice(0, -1));
 }
 
 function isMasked(v: string): boolean {
@@ -258,8 +290,17 @@ function wantsKeys(info: ElementInfo, value: string): boolean {
   return (info.role === "combobox" || info.role === "searchbox") && value.length <= TYPED_MAX;
 }
 
+/** Whether the focused element (through open shadow roots) takes typed text. */
+const FOCUSED_TEXT_FIELD = `(() => {
+  let a = document.activeElement;
+  while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
+  if (!a) return false;
+  if (a.isContentEditable || a.localName === "textarea") return true;
+  return a.localName === "input" && /^(text|search|email|url|tel|number|)$/.test(a.type || "");
+})()`;
+
 async function select(ctx: StepCtx, target: TargetSpec, text: string): Promise<string | undefined> {
-  const { cdp } = await ctx.session.current();
+  const { cdp, page } = await ctx.session.current();
   const loc = await locate(ctx, target);
   const native = await ctx.session.call("selectNativeOption", loc.id, text);
   if (native.ok) {
@@ -275,8 +316,11 @@ async function select(ctx: StepCtx, target: TargetSpec, text: string): Promise<s
   await ctx.session.settle();
   let opts = await waitOptions(ctx, text);
   let option = pickOption(opts, text);
-  if (!option && isTextField(loc.info)) {
-    await ctx.session.call("focusAndSelectAll", loc.id); // replace the text, never append to it
+  const focusedField = !option && (await page.evaluate(FOCUSED_TEXT_FIELD));
+  if (!option && (focusedField || isTextField(loc.info))) {
+    // The click may have opened a dialog with its own search field (Google Flights): type where the focus is.
+    if (focusedField) await input.press(cdp, "Control+A"); // replace the text, never append to it
+    else await ctx.session.call("focusAndSelectAll", loc.id);
     await input.typeText(cdp, text);
     await ctx.session.settle();
     opts = await waitOptions(ctx, text);
@@ -354,19 +398,44 @@ async function check(ctx: StepCtx, target: TargetSpec, want: boolean): Promise<s
   return want ? "☑" : "☐";
 }
 
+/** Keys meant to do something visible; a press with no effect fails like a click with none. */
+const ACTION_KEYS = new Set(["Enter", "Space", " ", "Escape"]);
+
+const NOTHING_FOCUSED = "!document.activeElement || document.activeElement === document.body";
+
 async function press(ctx: StepCtx, combo: string): Promise<string | undefined> {
-  const { cdp } = await ctx.session.current();
+  const { cdp, network, page } = await ctx.session.current();
+  // fill commits with blur; a human pressing Enter next would still be in the field.
+  if (ctx.view.lastFilled !== undefined && (await page.evaluate(NOTHING_FOCUSED))) {
+    await ctx.session.call("focusAtEnd", ctx.view.lastFilled);
+  }
+  const before = await ctx.view.snapshot();
+  const mark = network.mark();
   await input.press(cdp, combo);
   await ctx.session.settle();
-  return undefined;
+  const after = await ctx.view.snapshot().catch(() => undefined);
+  if (!after) return "→ page is navigating";
+  const diff = diffSnapshots(before, after);
+  const anyChange =
+    after.url !== before.url ||
+    diff.added.length + diff.removed.length + diff.changed.length + diff.newMessages.length > 0 ||
+    network.mutationsSince(mark).some((n) => !n.thirdParty) ||
+    ctx.session.hasNewTab();
+  if (anyChange) return effectSummary(before, after);
+  if (ACTION_KEYS.has(combo)) throw new StepError(`no visible change after ${combo}`);
+  // Arrows, Home, Shift+arrows in a text field move the caret or the selection: nothing to see, not a failure.
+  if (await page.evaluate(FOCUSED_TEXT_FIELD)) return "(in text field)";
+  ctx.warning = true;
+  return "(no visible change)";
 }
 
-async function scroll(ctx: StepCtx, spec: { in?: TargetSpec; to: "top" | "bottom" | number | TargetSpec }): Promise<string | undefined> {
-  const { page } = await ctx.session.current();
-  const { to } = spec;
-  if (typeof to !== "number" && to !== "top" && to !== "bottom") {
+async function scroll(ctx: StepCtx, spec: { in?: TargetSpec; to?: "top" | "bottom" | TargetSpec; by?: number }): Promise<string | undefined> {
+  const { page, cdp } = await ctx.session.current();
+  const { to, by } = spec;
+  if ((to === undefined) === (by === undefined)) throw new StepError('scroll needs either to ("top" | "bottom" | element) or by (pixels)');
+  if (to !== undefined && to !== "top" && to !== "bottom") {
     const before = await page.evaluate(SCROLL_POSITIONS);
-    const loc = await locate(ctx, to); // locate scrolls the target into view, inner containers included
+    const loc = await locate(ctx, to, { anyKind: true }); // locate scrolls the target into view, inner containers included
     const moved = before !== (await page.evaluate(SCROLL_POSITIONS));
     await ctx.session.settle();
     // Some pages scroll back (focus handling, virtualized forms): check where the element ended up.
@@ -374,15 +443,42 @@ async function scroll(ctx: StepCtx, spec: { in?: TargetSpec; to: "top" | "bottom
     if (!now?.inViewport) throw new StepError(moved ? "scrolled to it, but the page moved it out of view again" : "nothing scrolled and the element is still out of view");
     return moved ? undefined : "(already in view)";
   }
-  // Without `in`: the document, or the largest scrollable container when the document does not scroll.
+  const amount = (by ?? to) as "top" | "bottom" | number;
+  const before = await ctx.view.snapshot();
+  // Like a human with the mouse over it: the given container, else the open dialog (the page
+  // behind a modal does not scroll), else the document or the largest scrollable container.
   let point: { x: number; y: number } | null = null;
   if (spec.in !== undefined) point = (await locate(ctx, spec.in, { anyState: true })).point;
-  const r = (await page.evaluate(`(${scrollBy.toString()})(${JSON.stringify(to)}, ${JSON.stringify(point)})`)) as ScrollOutcome;
+  else if (before.layer) point = layerPoint(before);
+  const r = (await page.evaluate(`(${scrollBy.toString()})(${JSON.stringify(amount)}, ${JSON.stringify(point)})`)) as ScrollOutcome;
+  if (!r.moved && r.what === null && point) {
+    // No DOM scroll container: custom scrollers (calendars, canvases) listen to the wheel.
+    const delta = amount === "top" ? -5000 : amount === "bottom" ? 5000 : amount;
+    await input.wheel(cdp, point, delta);
+  }
   await ctx.session.settle();
-  if (r.moved) return undefined;
-  if (r.what === null) throw new StepError(point ? "no scrollable container at that element" : "nothing on the page scrolls");
-  if (r.atEdge) return `(already at the ${typeof to === "number" ? (to < 0 ? "top" : "bottom") : to} of ${r.what})`;
-  throw new StepError(`${r.what} did not scroll`);
+  const after = await ctx.view.snapshot();
+  if (sameView(before, after)) {
+    if (r.atEdge) return `(already at the ${typeof amount === "number" ? (amount < 0 ? "top" : "bottom") : amount} of ${r.what})`;
+    if (r.what === null) throw new StepError(point ? `nothing scrolls at that point${before.layer ? ` (inside ${before.layer})` : ""}` : "nothing on the page scrolls");
+    if (!r.moved) throw new StepError(`${r.what} did not scroll`);
+    // Moved, but only plain text was there: not a failure, but the agent should not expect new controls.
+    ctx.warning = true;
+    return `(${r.what} scrolled, no listed element changed)`;
+  }
+  return r.what ? `(${r.what})` : undefined;
+}
+
+/** A point inside the open modal layer: the center of its first visible element. */
+function layerPoint(snap: Snapshot): { x: number; y: number } | null {
+  const el = snap.elements.find((e) => e.inViewport && !e.occludedBy);
+  return el ? { x: el.rect.x + el.rect.w / 2, y: el.rect.y + el.rect.h / 2 } : null;
+}
+
+/** Same elements at the same places: nothing the agent could see changed. */
+function sameView(a: Snapshot, b: Snapshot): boolean {
+  const key = (s: Snapshot) => s.elements.filter((e) => e.inViewport).map((e) => `${e.id}:${e.rect.x},${e.rect.y}:${e.name}`).join("|");
+  return a.scroll.y === b.scroll.y && key(a) === key(b);
 }
 
 interface ScrollOutcome {
@@ -422,6 +518,7 @@ function scrollBy(to: "top" | "bottom" | number, point: { x: number; y: number }
       }
     }
     box ??= first;
+    if (!box) return { what: null, moved: false, atEdge: false };
   } else if (document.documentElement.scrollHeight <= innerHeight + 1) {
     let best = 0;
     for (const el of document.querySelectorAll("*")) {
@@ -438,8 +535,6 @@ function scrollBy(to: "top" | "bottom" | number, point: { x: number; y: number }
   if (box) {
     const label = box.getAttribute("aria-label") || box.id || box.localName;
     what = `scroll container "${label.slice(0, 40)}"`;
-  } else if (point && document.documentElement.scrollHeight <= innerHeight + 1) {
-    return { what: null, moved: false, atEdge: false };
   }
   const el = box ?? document.scrollingElement ?? document.documentElement;
   const before = el.scrollTop;

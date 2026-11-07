@@ -18,6 +18,8 @@
     <h2>Budget</h2>
     <label>Daily budget <input id="budget"></label>
     <label>Name <input id="name"></label>
+    <label>Question <input id="question"></label>
+    <label>Lifetime budget <input id="lifetime" value="20,00"></label>
     <label>Currency
       <select id="currency"><option>USD</option><option>EUR</option><option>PLN</option></select>
     </label>
@@ -32,6 +34,7 @@
       <div class="dd-button" role="combobox" aria-label="Age" aria-expanded="false" tabindex="0" id="age">18</div>
     </div>
     <label>City <input id="city" role="combobox" value="Wa"></label>
+    <label>From <input id="from" role="combobox" value="Kyiv" readonly></label>
 
     <button id="noop">Nothing</button>
     <button id="open">Open dialog</button>
@@ -105,6 +108,25 @@
     if (city.value && hits.length) city.parentElement.append(optionList(hits, city));
   });
 
+  // Google Flights: clicking the field opens a panel with its own search input, typing goes there.
+  const from = document.getElementById("from");
+  from.addEventListener("click", () => {
+    if (document.getElementById("from-panel")) return;
+    const panel = document.createElement("div");
+    panel.id = "from-panel";
+    panel.innerHTML = '<input aria-label="Where from?">';
+    from.parentElement.after(panel);
+    const search = panel.querySelector("input");
+    search.focus();
+    search.addEventListener("keyup", () => {
+      panel.querySelector(".dd-list")?.remove();
+      const hits = ["Warsaw", "Wroclaw", "Kyiv"].filter((c) => c.toLowerCase().startsWith(search.value.toLowerCase()));
+      const list = optionList(hits, from);
+      list.addEventListener("click", () => panel.remove());
+      panel.append(list);
+    });
+  });
+
   function optionList(names, field) {
     const list = document.createElement("div");
     list.className = "dd-list";
@@ -139,6 +161,21 @@
     await fetch(location.href.replace("127.0.0.1", "localhost") + "publish", { method: "POST", body: "{}" }).catch(() => {});
     status.textContent = "Synced";
   });
+  // Chat-like field: Enter sends what was typed.
+  const question = document.getElementById("question");
+  question.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && question.value) status.textContent = `Sent: ${question.value}`;
+  });
+  // Meta-like controlled field: its state changes on key events only, blur restores the state.
+  const lifetime = document.getElementById("lifetime");
+  let lifetimeState = lifetime.value;
+  let keyed = false;
+  lifetime.addEventListener("keydown", () => (keyed = true));
+  lifetime.addEventListener("input", () => {
+    if (keyed) lifetimeState = lifetime.value;
+    keyed = false;
+  });
+  lifetime.addEventListener("blur", () => (lifetime.value = lifetimeState));
 </script>
 </body>
 </html>

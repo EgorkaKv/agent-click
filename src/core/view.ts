@@ -23,12 +23,15 @@ export class View {
   /** Last snapshot shown to the agent, per tab url-independent (reset on tab switch). */
   last?: Snapshot;
   private shownImage = false;
+  /** Field the last fill typed into; a following press goes there (fill blurs to commit). */
+  lastFilled?: number;
 
   constructor(private session: Session) {}
 
   reset(): void {
     this.last = undefined;
     this.shownImage = false;
+    this.lastFilled = undefined;
   }
 
   async snapshot(opts?: SnapshotOptions): Promise<Snapshot> {
