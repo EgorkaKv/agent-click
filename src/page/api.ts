@@ -10,6 +10,7 @@ import { snapshot } from "./snapshot.js";
 import { VERSION } from "./version.js";
 import {
   focusAndSelectAll,
+  focusAtEnd,
   hasText,
   openOptions,
   selectNativeOption,
@@ -34,6 +35,7 @@ export function createApi(): PageApi {
     locate: (target, opts) => locate(target, opts ?? {}),
     describe: describeId,
     focusAndSelectAll,
+    focusAtEnd,
     setNativeValue,
     selectNativeOption,
     hasText,

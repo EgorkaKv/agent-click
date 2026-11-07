@@ -23,6 +23,7 @@ import {
 } from "./util.js";
 import {
   type Box,
+  clickTarget,
   clipBox,
   frameContentOffset,
   isRendered,
@@ -314,8 +315,9 @@ export function buildCand(
 ): Cand {
   const name = nameFor(el, cache);
   const ctx = contextPath(el, cache);
-  const rect = rectOf(el, off);
-  const clip = clipBox(el, off);
+  const geo = clickTarget(el) ?? el;
+  const rect = rectOf(geo, off);
+  const clip = clipBox(geo, off);
   const visible = visibleBox(rect, clip);
   return {
     el,
@@ -360,7 +362,13 @@ function innerToggle(el: Element, S1: Set<Element>): { el: Element; role: "check
  * no other collected interactive element. "" if none.
  */
 function nearbyName(el: Element, interCount: Map<Element, number>): string {
-  const own = [textOf(el), (el as HTMLInputElement).value ?? ""].filter(Boolean);
+  // A checkbox or radio value ("on" by default) is not visible text, so it is not cut out of the text.
+  const input = el as HTMLInputElement;
+  const valueText =
+    el.localName === "input" && !/^(checkbox|radio|button|submit|reset|image|file)$/.test(input.type)
+      ? input.value ?? ""
+      : "";
+  const own = [textOf(el), valueText].filter(Boolean);
   let up = 0;
   for (const a of composedAncestors(el)) {
     if (++up > 3) break;
@@ -412,7 +420,7 @@ export function collect(): Collection {
   const S1 = new Set<Element>();
   for (const el of S) {
     if (el.localName === "label" && (el as HTMLLabelElement).control) continue;
-    if (isRendered(el)) S1.add(el);
+    if (clickTarget(el)) S1.add(el);
   }
 
   // 3. Containers. Collected elements that wrap other collected interactive elements:

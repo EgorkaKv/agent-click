@@ -2,7 +2,7 @@
 // an "offset" is the position of a document's viewport origin in top-level coords
 // (non-zero only inside same-origin iframes).
 import type { Rect } from "../types.js";
-import { composedAncestors, explicitRole, isRelated, Pt, styleOf, textOf, truncate } from "./util.js";
+import { composedAncestors, composedContains, explicitRole, isRelated, Pt, styleOf, textOf, truncate } from "./util.js";
 import { accName, labelOf, Cache } from "./context.js";
 
 export interface Box {
@@ -65,6 +65,32 @@ function checkVis(el: Element): boolean {
   }
   const cs = styleOf(el);
   return cs.display !== "none" && cs.visibility !== "hidden" && cs.opacity !== "0";
+}
+
+function isToggleInput(el: Element): boolean {
+  if (el.localName !== "input") return false;
+  const type = (el as HTMLInputElement).type;
+  return type === "checkbox" || type === "radio";
+}
+
+/** Box of at least 3x3 px: a control that small (or transparent) is clicked through its label. */
+function hasSize(el: Element): boolean {
+  const r = el.getBoundingClientRect();
+  return r.width >= 3 && r.height >= 3;
+}
+
+/**
+ * The element whose box a control is clicked through. A checkbox or radio that is transparent
+ * (opacity 0, the custom-control pattern) or tiny is clicked through its rendered label, which
+ * toggles it. Otherwise the element itself if it is rendered, else null.
+ */
+export function clickTarget(el: Element): Element | null {
+  if (isToggleInput(el) && (!isRendered(el) || !hasSize(el))) {
+    for (const lb of Array.from((el as HTMLInputElement).labels ?? [])) {
+      if (isRendered(lb) && hasSize(lb)) return lb;
+    }
+  }
+  return isRendered(el) ? el : null;
 }
 
 function isHiddenNode(n: Element): boolean {
@@ -233,10 +259,21 @@ export function describeOccluder(hit: Element): string {
   return hit.localName;
 }
 
+/**
+ * True if hit lies inside one of el's labels (wrapping or `for=`). A custom control with
+ * opacity 0 is drawn by its label, so the label's text is part of the control, not an occluder.
+ */
+function inOwnLabel(el: Element, hit: Element): boolean {
+  for (const lb of Array.from((el as HTMLInputElement).labels ?? [])) {
+    if (composedContains(lb, hit)) return true;
+  }
+  return false;
+}
+
 /** null if the point is not covered by something unrelated to el. */
 export function occluderAt(el: Element, off: Pt, p: Pt): string | null {
   const hit = deepHit(el.ownerDocument, p.x - off.x, p.y - off.y);
-  if (!hit || isRelated(el, hit)) return null;
+  if (!hit || isRelated(el, hit) || inOwnLabel(el, hit)) return null;
   return describeOccluder(hit);
 }
 

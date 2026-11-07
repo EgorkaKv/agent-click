@@ -39,6 +39,28 @@ export function focusAndSelectAll(id: number): boolean {
   return true;
 }
 
+/** Focus with the caret at the end, as after typing: keys go where a human left off. */
+export function focusAtEnd(id: number): boolean {
+  const el = resolveElement(id);
+  if (!el) return false;
+  (el as HTMLElement).focus?.();
+  if (el.localName === "input" || el.localName === "textarea") {
+    const f = el as HTMLInputElement;
+    try {
+      f.setSelectionRange(f.value.length, f.value.length);
+    } catch {
+      /* input types without selection support */
+    }
+    return true;
+  }
+  const sel = el.ownerDocument.defaultView?.getSelection();
+  if (sel && el.getAttribute("contenteditable") !== null) {
+    sel.selectAllChildren(el);
+    sel.collapseToEnd();
+  }
+  return true;
+}
+
 export function setNativeValue(id: number, value: string): boolean {
   const el = resolveElement(id);
   if (!el) return false;

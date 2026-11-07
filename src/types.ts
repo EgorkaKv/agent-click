@@ -117,15 +117,27 @@ export interface SnapshotOptions {
  * API installed by dist/page.js as window.__agentClick. All methods are synchronous
  * and return JSON-serializable values (called via Runtime.evaluate / page.evaluate).
  */
+export interface LocateOptions {
+  scroll?: boolean;
+  /** The element is only a reference point (scroll container): disabled is fine. */
+  anyState?: boolean;
+  /** Headings and texts too, not only interactive elements (scroll to a section). */
+  anyKind?: boolean;
+  /** Scroll it to the middle even when visible (it is under a fixed header). */
+  center?: boolean;
+}
+
 export interface PageApi {
   version: string;
   snapshot(opts?: SnapshotOptions): Snapshot;
   /** Resolve a target, scroll it into view if needed (block: "center"), return the click point. */
-  locate(target: TargetSpec, opts?: { scroll?: boolean; anyState?: boolean }): LocateResult;
+  locate(target: TargetSpec, opts?: LocateOptions): LocateResult;
   /** Fresh info for a known id, or null if it cannot be resolved (even by fingerprint). */
   describe(id: number): ElementInfo | null;
   /** Focus the element and select its whole content (inputs, textareas, contenteditable). */
   focusAndSelectAll(id: number): boolean;
+  /** Focus the field with the caret at the end of its content. */
+  focusAtEnd(id: number): boolean;
   /** Set value via the native setter + input/change events (fallback when typing does not work). */
   setNativeValue(id: number, value: string): boolean;
   /** Native <select>: choose option by visible text (exact, then case-insensitive substring). */
