@@ -38,6 +38,10 @@ describe("basic form", () => {
     expect(email.state).toEqual({ invalid: true, required: true });
   });
 
+  it("takes an invalid field's message from red text next to it when there is no aria link (Meta)", () => {
+    expect(find(els, "textbox", "Daily budget").error).toBe("Budget must be at least $1.00");
+  });
+
   it("reports checked, disabled and selected states, omitting false keys", () => {
     expect(find(els, "checkbox", "Subscribe").state.checked).toBe(true);
     expect(find(els, "checkbox", "Subscribe")).not.toHaveProperty("value");

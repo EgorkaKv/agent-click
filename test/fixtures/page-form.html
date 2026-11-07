@@ -41,5 +41,8 @@
   <button type="button" id="more" aria-expanded="false">More</button>
   <span class="badge">Active</span>
 </form>
+<!-- Meta: invalid budget, the message is red text next to the field with no aria link -->
+<div><div><label for="budget">Daily budget</label><input id="budget" aria-invalid="true" value="0,50"></div>
+<div><span style="color: rgb(201, 38, 38)">Budget must be at least $1.00</span></div></div>
 </body>
 </html>

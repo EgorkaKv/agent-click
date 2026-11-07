@@ -7,6 +7,7 @@ import {
   explicitRole,
   idsOf,
   matchesSafe,
+  styleOf,
   textOf,
   truncate,
   collapse,
@@ -122,6 +123,43 @@ function errorOf(el: Element): string | undefined {
   if (matchesSafe(el, ":user-invalid")) {
     const vm = (el as HTMLInputElement).validationMessage;
     if (vm) return truncate(vm, 200);
+  }
+  if (el.getAttribute("aria-invalid") === "true" || matchesSafe(el, ":user-invalid")) return nearbyError(el);
+  return undefined;
+}
+
+const ERROR_CLASS_RE = /error|invalid|danger/i;
+/** Levels to climb from an invalid field looking for its message, and the field count that ends the search. */
+const ERROR_CLIMB = 6;
+const ERROR_MAX_FIELDS = 3;
+
+/** Red text: Meta and most design systems color the inline message, with no ARIA link to the field. */
+function isReddish(el: Element): boolean {
+  const m = /rgba?\((\d+), (\d+), (\d+)/.exec(styleOf(el).color);
+  return !!m && +m[1] >= 150 && +m[2] <= 110 && +m[3] <= 110;
+}
+
+function looksLikeError(t: Element): boolean {
+  const role = t.getAttribute("role");
+  if (role === "alert" || t.hasAttribute("aria-live")) return true;
+  if (ERROR_CLASS_RE.test(t.id) || ERROR_CLASS_RE.test(t.getAttribute("class") ?? "")) return true;
+  return isReddish(t);
+}
+
+/**
+ * Message of an invalid field that the page shows next to it without aria links: the closest
+ * error-looking visible text in the field's container (while the container holds few fields).
+ */
+function nearbyError(el: Element): string | undefined {
+  let box: Element | null = el.parentElement;
+  for (let i = 0; i < ERROR_CLIMB && box; i++, box = box.parentElement) {
+    if (box.querySelectorAll("input, textarea, select, [contenteditable=true]").length > ERROR_MAX_FIELDS) return undefined;
+    for (const t of box.querySelectorAll("*")) {
+      if (t.contains(el) || el.contains(t)) continue;
+      const text = textOf(t);
+      if (text.length < 5 || text.length > 300 || t.childElementCount > 3) continue;
+      if (looksLikeError(t) && isRendered(t)) return truncate(text, 200);
+    }
   }
   return undefined;
 }
