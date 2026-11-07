@@ -108,7 +108,24 @@ export function hasText(text: string, scope?: number | string): boolean {
   }
   if (!root) return false;
   const visible = (root as HTMLElement).innerText ?? root.textContent ?? "";
-  return norm(visible).includes(norm(text));
+  const want = norm(text);
+  if (norm(visible).includes(want)) return true;
+  // innerText leaves out content-visibility:auto blocks that are off-screen (Meta's long editor
+  // form): accept the text when the deepest element holding it is rendered.
+  if (!norm(root.textContent ?? "").includes(want)) return false;
+  let el: Element = root;
+  for (let deeper = true; deeper; ) {
+    deeper = false;
+    for (const c of el.children) {
+      if (norm(c.textContent ?? "").includes(want)) {
+        el = c;
+        deeper = true;
+        break;
+      }
+    }
+  }
+  const check = (el as Element & { checkVisibility?: (o?: object) => boolean }).checkVisibility;
+  return check ? check.call(el, { visibilityProperty: true }) : true;
 }
 
 /** Visible options of an open listbox or menu, with ids. */
