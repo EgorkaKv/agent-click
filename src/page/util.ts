@@ -30,7 +30,8 @@ export function collapse(s: string): string {
  * exact repetition ("X X" or "XX" -> "X"; a visually hidden copy of the same text).
  */
 export function cleanName(s: string): string {
-  return dropRepeat(collapse(s.replace(MACHINE_TOKEN_RE, " ")));
+  // Zero-width characters go first: "status_before_click​:selected" must still match as a token.
+  return dropRepeat(collapse(collapse(s).replace(MACHINE_TOKEN_RE, " ")));
 }
 
 /** "A B B" -> "A B", "AAAA" -> "AA", "Текст Текст" -> "Текст". Only a repeated tail or a doubled whole. */

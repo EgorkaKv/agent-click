@@ -45,8 +45,8 @@ describe("real-session fixes 2", () => {
     expect(snap.loading.reasons).toEqual(['progressbar ×2 in section "Объявления"']);
   });
 
-  it("uses data-placeholder of a contenteditable as its placeholder", () => {
-    const box = find(els, "textbox", "");
+  it("names a contenteditable by its data-placeholder and reports it", () => {
+    const box = find(els, "textbox", "Задайте уточняющий вопрос");
     expect(box.placeholder).toBe("Задайте уточняющий вопрос");
   });
 

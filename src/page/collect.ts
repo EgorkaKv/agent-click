@@ -14,6 +14,7 @@ import {
   composedAncestors,
   composedContains,
   explicitRole,
+  isContentEditable,
   parentAcross,
   spacedText,
   styleOf,
@@ -200,9 +201,11 @@ export function nameFor(el: Element, cache: Cache): string {
   }
   // Fast path: a leaf non-form element without label attributes is named by its text,
   // which is what the accessible-name computation would return (or "" -> text fallback).
+  const field = isTextField(el);
   if (
     el.childElementCount === 0 &&
     !FORM_TAGS.has(el.localName) &&
+    !field &&
     el.localName !== "img" &&
     !el.hasAttribute("alt") &&
     !labelled &&
@@ -210,9 +213,95 @@ export function nameFor(el: Element, cache: Cache): string {
   ) {
     return truncate(cleanName(textOf(el)), 80);
   }
-  let n = accName(el, cache);
-  if (!n && !FORM_TAGS.has(el.localName)) n = cleanName(spacedText(el, true));
+  // A field's typed content is its value, not its name: only a label may name it.
+  let n = "";
+  if (!field || FORM_TAGS.has(el.localName) || labelled || el.closest("label")) n = accName(el, cache);
+  if (!n && field) n = placeholderOf(el) || overlayText(el);
+  if (!n) n = imageName(el);
+  if (!n && !field && !FORM_TAGS.has(el.localName)) n = cleanName(spacedText(el, true));
   return truncate(n, 80);
+}
+
+/** A textbox, searchbox, combobox (not a select) or contenteditable region. */
+function isTextField(el: Element): boolean {
+  if (el.localName === "select") return false;
+  const r = roleOf(el);
+  return r === "textbox" || r === "searchbox" || r === "combobox" || isContentEditable(el);
+}
+
+/** The placeholder attributes of a field, in the order the accessible-name rules prefer them. */
+function placeholderOf(el: Element): string {
+  for (const attr of ["aria-placeholder", "placeholder", "data-placeholder"]) {
+    const t = cleanName(el.getAttribute(attr) ?? "");
+    if (t) return t;
+  }
+  return "";
+}
+
+/**
+ * Text of a visible element drawn over the box of el (a placeholder that is a sibling of the field,
+ * positioned on top of it). Searched in the three nearest ancestors; el's own subtree is skipped.
+ */
+function overlayText(el: Element): string {
+  const box = el.getBoundingClientRect();
+  if (box.width === 0 || box.height === 0) return "";
+  let up = 0;
+  for (const a of composedAncestors(el)) {
+    if (++up > 3) break;
+    for (const d of Array.from(a.querySelectorAll("*"))) {
+      if (d === el || el.contains(d) || d.contains(el)) continue;
+      const own = Array.from(d.childNodes)
+        .filter((n) => n.nodeType === 3)
+        .map((n) => n.textContent ?? "")
+        .join(" ");
+      if (!collapse(own)) continue;
+      const r = d.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      if (cx < box.left || cx > box.right || cy < box.top || cy > box.bottom) continue;
+      if (styleOf(d).visibility === "hidden") continue;
+      const t = cleanName(own);
+      if (t) return truncate(t, 80);
+    }
+  }
+  return "";
+}
+
+/** Name of a control whose content is an image: alt, then title, then the file name of src. */
+function imageName(el: Element): string {
+  const imgs = Array.from(el.querySelectorAll("img"));
+  for (const img of imgs) {
+    const t = cleanName(img.getAttribute("alt") ?? "");
+    if (t) return t;
+  }
+  for (const img of imgs) {
+    const t = cleanName(img.getAttribute("title") ?? "");
+    if (t) return t;
+  }
+  for (const img of imgs) {
+    const t = fileNameOf(img.getAttribute("src") ?? "");
+    if (t) return t;
+  }
+  return "";
+}
+
+/** "…/thumb/a/ab/Chromium_Material_Icon.png/220px-Chromium_Material_Icon.png" -> "Chromium Material Icon". */
+function fileNameOf(src: string): string {
+  if (!src || src.startsWith("data:")) return "";
+  const last = (src.split(/[?#]/)[0] ?? "").split("/").filter(Boolean).pop() ?? "";
+  let name = last;
+  try {
+    name = decodeURIComponent(last);
+  } catch {
+    // keep the raw segment
+  }
+  name = name
+    .replace(/\.[A-Za-z0-9]{1,5}$/, "")
+    .replace(/^\d+px-/, "")
+    .replace(/[-_]\d+x\d+$/, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
+  return /\p{L}/u.test(name) ? name : "";
 }
 
 /** Candidate for one element (no fingerprint ordinal yet). */

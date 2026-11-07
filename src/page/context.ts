@@ -82,6 +82,18 @@ export function labelOf(a: Element, cache: Cache, landmarksOnly = false): string
   return v;
 }
 
+/** Table cells and rows: a column or row header is data, never a section title. */
+const CELL_SEL = "table,[role=grid],[role=table],[role=treegrid],[role=row],tr,th,td,[role=columnheader],[role=rowheader],[role=gridcell],[role=cell]";
+/** Side navigation: a heading inside it titles only what is inside the same landmark. */
+const SIDE_SEL = "nav,aside,[role=navigation],[role=complementary]";
+
+/** Whether heading h may title el (not a table header, not a sidebar heading for content outside it). */
+function canTitle(h: Element, el: Element): boolean {
+  if (h.closest(CELL_SEL)) return false;
+  const side = h.closest(SIDE_SEL);
+  return !side || side.contains(el);
+}
+
 /**
  * Label of the heading that titles el: the nearest heading before it in its container.
  * A heading, or anything inside one, takes no heading label (it belongs to its container, not
@@ -106,7 +118,7 @@ function nearestHeading(el: Element, cache: Cache): string | null {
   let prev: Element | null = null;
   for (const h of heads) {
     if (el.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_PRECEDING) {
-      if (HAS_LETTER.test(textOf(h))) prev = h;
+      if (HAS_LETTER.test(textOf(h)) && canTitle(h, el)) prev = h;
     } else {
       break; // document order: the first following heading ends the search
     }

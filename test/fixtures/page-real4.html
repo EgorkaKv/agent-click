@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>agent-click real session 3 names and context</title>
+<style>
+  body { font: 14px sans-serif; margin: 16px; }
+  .box { display: block; margin: 8px 0; }
+  .field { position: relative; width: 420px; }
+  .editable { width: 420px; min-height: 36px; border: 1px solid #999; padding: 8px; box-sizing: border-box; }
+  .ph { position: absolute; left: 9px; top: 9px; color: #777; pointer-events: none; }
+  .card { width: 300px; border: 1px solid #888; padding: 8px; margin: 6px 0; cursor: pointer; }
+  .thumb { display: inline-block; width: 40px; height: 40px; background: #ddd; }
+  .side { position: absolute; left: 16px; top: 20px; width: 160px; }
+  .ed { position: absolute; left: 16px; top: 200px; width: 600px; }
+</style>
+</head>
+<body>
+
+<!-- 1. contenteditable textbox with a placeholder drawn as a sibling element over the field -->
+<div class="field" id="field1">
+  <div id="ce1" class="editable" contenteditable="true" role="textbox"></div>
+  <div class="ph" id="ph1">Задайте уточняющий вопрос</div>
+</div>
+
+<!-- 2. contenteditable with its own text typed in: the name must not be that text -->
+<div class="field">
+  <div id="ce2" class="editable" contenteditable="true" role="textbox" aria-placeholder="Задайте любой вопрос">Назови 5 самых интересных мест</div>
+</div>
+
+<!-- 3. input with a placeholder and no label -->
+<input id="inp3" class="box" type="text" placeholder="Поиск по аккаунту" value="абв">
+
+<!-- 4. image links and an image button without text -->
+<a id="img1" href="#wiki" class="box"><img class="thumb" src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Chromium_Material_Icon.png/220px-Chromium_Material_Icon.png" width="40" height="40"></a>
+<a id="img2" href="#alt" class="box"><img class="thumb" alt="Логотип Wikipedia" src="logo.png" width="40" height="40"></a>
+<button id="img3" class="box"><img class="thumb" src="icons/close-btn.svg" width="40" height="40"></button>
+
+<!-- 5. glued machine tokens and zero-width spaces in names -->
+<nav>
+  <a id="menu" href="#menu" class="box">Меню&#8203; </a>
+  <a id="all" href="#all" class="box">Все объявления&#8203;status_before_click:selected</a>
+  <a id="help" href="#help" class="box">Справка <span>status_before_click:selected</span></a>
+  <a id="save" href="#save" class="box">Сохранить status_before_click&#8203;:selected</a>
+</nav>
+
+<!-- 6. a repeated phrase in a button -->
+<button id="budget" class="box">Бюджет <span>Параметр Advantage+ включен</span> <span>Параметр Advantage+ включен</span></button>
+
+<!-- 7. a radio without its own name inside a clickable card that names it -->
+<div id="card1" class="card" role="button" tabindex="0">
+  <div><input id="r1" type="radio" name="mode" value="on"></div>
+  <div>Рекомендуемые настройки</div>
+</div>
+<div id="card2" class="card" role="button" tabindex="0">
+  <div><input id="r2" type="radio" name="mode" value="on"></div>
+  <div>Подключение вручную</div>
+</div>
+
+<!-- 8. context: headings in div soup (role=heading with aria-level), a table header, a sidebar -->
+<div id="editor">
+  <div role="heading" aria-level="2" id="h-type">Тип закупки рекламы</div>
+  <div class="box"><button id="type-auction">Аукцион</button></div>
+  <div role="heading" aria-level="2" id="h-budget">Бюджет и график</div>
+  <div class="box"><button id="budget-btn">Сумма в день</button></div>
+</div>
+
+<div id="grid" role="grid" class="box">
+  <div role="row">
+    <div role="heading" aria-level="4" id="colhead">Выкл./вкл.</div>
+    <div role="heading" aria-level="4">Статус</div>
+  </div>
+  <div role="row">
+    <div role="gridcell"><button id="toggle1">Вкл</button></div>
+    <div role="gridcell">Активно</div>
+  </div>
+</div>
+
+<aside class="side" id="aside">
+  <div role="heading" aria-level="2" id="h-notify">Уведомления</div>
+  <a id="side-link" href="#side">Журнал</a>
+</aside>
+<div id="editor2" class="ed">
+  <button id="create" class="box">Создать группу</button>
+</div>
+
+</body>
+</html>
