@@ -57,6 +57,64 @@ function fieldText(el: Element): string | null {
   return null;
 }
 
+/** Displays that make a box of their own: a list item's fragments are its children of these displays. */
+const BOX_FRAGMENT = /^(block|flex|grid|list-item|table|flow-root|inline-block|inline-flex|inline-grid|inline-table)/;
+/** Controls and structure that a list item must keep as they are (not flattened to one line). */
+const LI_STRUCTURED = "input,select,textarea,table,h1,h2,h3,h4,h5,h6,[role=heading],[role=checkbox],[role=radio],[role=switch]";
+
+/** Text of a node with a space at every element boundary, so adjacent elements never glue. */
+function flatText(node: Element): string {
+  const out: string[] = [];
+  const add = (n: Node): void => {
+    if (n.nodeType === Node.TEXT_NODE) {
+      out.push(n.textContent ?? "");
+      return;
+    }
+    if (n.nodeType !== Node.ELEMENT_NODE) return;
+    const el = n as Element;
+    if (SKIP.has(el.localName) || hidden(el)) return;
+    out.push(" ");
+    for (const c of (el.shadowRoot ?? el).childNodes) add(c);
+    out.push(" ");
+  };
+  add(node);
+  return collapse(out.join(""));
+}
+
+/**
+ * Fragments of a list item: the text of each box-level child, found by descending through boxes
+ * that hold boxes. Inline content between boxes joins into one fragment.
+ */
+function fragments(el: Element, out: string[]): void {
+  let buf = "";
+  const flush = (): void => {
+    const t = collapse(buf);
+    if (t) out.push(t);
+    buf = "";
+  };
+  for (const child of Array.from((el.shadowRoot ?? el).childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      buf += child.textContent ?? "";
+      continue;
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) continue;
+    const c = child as Element;
+    if (SKIP.has(c.localName) || hidden(c)) continue;
+    if (!BOX_FRAGMENT.test(styleOf(c).display)) {
+      buf += ` ${flatText(c)} `;
+      continue;
+    }
+    flush();
+    const holdsBoxes = Array.from(c.querySelectorAll("*")).some((d) => BOX_FRAGMENT.test(styleOf(d).display));
+    if (holdsBoxes) fragments(c, out);
+    else {
+      const t = flatText(c);
+      if (t) out.push(t);
+    }
+  }
+  flush();
+}
+
 function walk(node: Node, out: string[]): void {
   if (node.nodeType === Node.TEXT_NODE) {
     out.push(node.textContent ?? "");
@@ -82,6 +140,12 @@ function walk(node: Node, out: string[]): void {
   }
   if (el.localName === "br") {
     out.push("\n");
+    return;
+  }
+  if (el.localName === "li" && !el.querySelector(LI_STRUCTURED)) {
+    const parts: string[] = [];
+    fragments(el, parts);
+    if (parts.length) out.push(`\n- ${parts.join(" · ")}\n`);
     return;
   }
   const block = BLOCK.test(styleOf(el).display);

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Real session fixture 5</title>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  .radio-group input { position: absolute; opacity: 0; width: 20px; height: 20px; }
+  .radio-group label.box { display: inline-block; width: 164px; height: 26px; border: 1px solid #888; margin-left: 30px; }
+  .radio-group label.wrap { display: block; width: 164px; height: 26px; margin-top: 40px; }
+  .radio-group label.wrap input { position: absolute; opacity: 0; width: 20px; height: 20px; }
+  .modal { position: fixed; left: 100px; top: 300px; width: 300px; height: 120px; background: #fff; border: 1px solid #333; }
+  .cards li { display: block; margin: 4px 0; }
+  .cards .row { display: flex; }
+</style>
+</head>
+<body>
+<main>
+  <fieldset class="radio-group" style="position: relative; height: 80px;">
+    <legend>Размер</legend>
+    <input type="radio" id="r-large" name="size" value="large" style="top: 10px; left: 0;">
+    <label class="box" for="r-large" style="position: absolute; top: 10px; left: 30px;">Large</label>
+    <label class="wrap">Medium<input type="radio" name="size" value="medium"></label>
+  </fieldset>
+
+  <table>
+    <tbody>
+      <tr><td><div>21</div><div>$171</div></td><td>Прямой</td><td><button>Выбрать</button></td></tr>
+      <tr><td><div>22</div><div>$190</div></td><td>С пересадкой</td><td><button>Выбрать</button></td></tr>
+    </tbody>
+  </table>
+
+  <ul class="cards">
+    <li>
+      <div class="row"><div>Tap Air Portugal</div><span>LOT</span></div>
+      <div>Самая низкая цена</div>
+      <div><span>от</span> <span>174 $</span></div>
+    </li>
+    <li>
+      <div class="row"><span>Ryanair</span><span>MAN</span></div>
+      <div>Самая низкая цена</div>
+      <div><span>от</span> <span>202 $</span></div>
+    </li>
+  </ul>
+</main>
+
+<div role="dialog" aria-modal="true" class="modal" id="dlg" style="display: none">
+  <p>Укажите пункт отправления</p>
+  <input type="text" aria-label="Откуда">
+  <button>Готово</button>
+</div>
+</body>
+</html>
